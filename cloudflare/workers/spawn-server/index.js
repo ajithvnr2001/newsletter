@@ -75,35 +75,45 @@ async function resolvePrimaryIpIds(env) {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
-  if (!configured.length) {
-    return [];
-  }
-
-  const ids = [];
+  const ids = new Set();
   const ipsToResolve = [];
 
   for (const token of configured) {
     if (/^\d+$/.test(token)) {
-      ids.push(Number(token));
+      ids.add(Number(token));
     } else {
       ipsToResolve.push(token);
     }
   }
 
-  if (!ipsToResolve.length) {
-    return ids;
+  const explicitIds = (env.PRIMARY_IP_IDS || "")
+    .split(",")
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isInteger(v));
+  for (const id of explicitIds) {
+    ids.add(id);
   }
 
-  const listResponse = await hetznerRequest(env, "/primary_ips?per_page=200");
-  const lookup = new Map(
-    (listResponse.primary_ips || []).map((ip) => [ip.ip, ip.id])
+  const listResponse = await hetznerRequest(env, "/primary_ips?per_page=200&type=ipv4");
+  const primaryIps = (listResponse.primary_ips || []).filter(
+    (ip) => String(ip.type || "").toLowerCase() === "ipv4"
   );
+  const lookupByIp = new Map(primaryIps.map((ip) => [ip.ip, Number(ip.id)]));
   for (const ip of ipsToResolve) {
-    if (lookup.has(ip)) {
-      ids.push(Number(lookup.get(ip)));
+    if (lookupByIp.has(ip)) {
+      ids.add(Number(lookupByIp.get(ip)));
     }
   }
-  return ids;
+
+  const prefix = env.PRIMARY_IP_NAME_PREFIX || "namma-ip-";
+  for (const ip of primaryIps) {
+    const name = String(ip.name || "");
+    if (prefix && name.startsWith(prefix)) {
+      ids.add(Number(ip.id));
+    }
+  }
+
+  return Array.from(ids);
 }
 
 async function spawn(env) {

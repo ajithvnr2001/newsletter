@@ -95,7 +95,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const district = $('For Each District').item.json.district;\nconst rawRss = ($('Fetch Google News RSS').item.json.body || $('Fetch Google News RSS').item.json.data || '');\nconst links = [...rawRss.matchAll(/<item>[\\s\\S]*?<title><!\\[CDATA\\[(.*?)\\]\\]><\\/title>[\\s\\S]*?<link>(.*?)<\\/link>/g)]\n  .slice(0, 12)\n  .map((m) => ({ title: m[1]?.trim() || 'Untitled', url: m[2]?.trim() || '' }))\n  .filter((r) => r.url);\nreturn links.map((article) => ({ json: { district, article_url: article.url, article_title: article.title } }));"
+        "jsCode": "const district = $('For Each District').item.json.district;\nconst rawRss = ($('Fetch Google News RSS').item.json.body || $('Fetch Google News RSS').item.json.data || '');\nconst fallbackLinks = [...rawRss.matchAll(/<item>[\\s\\S]*?<title>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/title>[\\s\\S]*?<link>(.*?)<\\/link>/g)]\n  .slice(0, 12)\n  .map((match) => ({\n    title: String(match[1] || '').replace(/<[^>]+>/g, '').trim() || 'Untitled',\n    url: String(match[2] || '').trim(),\n  }))\n  .filter((row) => /^https?:\\/\\//i.test(row.url));\n\nconst normalizeLinks = (records) => {\n  if (!Array.isArray(records)) return [];\n  const unique = new Map();\n  for (const row of records) {\n    if (!row || typeof row !== 'object') continue;\n    const url = String(row.url || row.link || row.source_url || row.article_url || '').trim();\n    if (!/^https?:\\/\\//i.test(url)) continue;\n    const title = String(row.title || row.headline || row.ai_title || row.name || '').trim() || 'Untitled';\n    if (!unique.has(url)) unique.set(url, { title, url });\n  }\n  return Array.from(unique.values());\n};\n\nconst parseMaybeJson = (value) => {\n  if (typeof value !== 'string') return null;\n  const input = value.trim();\n  if (!input) return null;\n  try {\n    return JSON.parse(input);\n  } catch (_error) {}\n  const bracketStart = input.search(/[\\[{]/);\n  if (bracketStart !== -1) {\n    const bracketBody = input.slice(bracketStart);\n    const objectMatch = bracketBody.match(/\\{[\\s\\S]*\\}/);\n    const arrayMatch = bracketBody.match(/\\[[\\s\\S]*\\]/);\n    for (const candidate of [arrayMatch?.[0], objectMatch?.[0]]) {\n      if (!candidate) continue;\n      try {\n        return JSON.parse(candidate);\n      } catch (_error) {}\n    }\n  }\n  return null;\n};\n\nconst response = $('LLM Deduplicate Headlines').item?.json || {};\nconst contentCandidates = [\n  response,\n  response.body,\n  response.data,\n  response.result,\n  response.message,\n  response.choices?.[0]?.message?.content,\n  response.output_text,\n].filter((value) => value !== undefined && value !== null);\n\nlet parsed = null;\nfor (const candidate of contentCandidates) {\n  if (typeof candidate === 'string') {\n    const parsedCandidate = parseMaybeJson(candidate);\n    if (parsedCandidate) {\n      parsed = parsedCandidate;\n      break;\n    }\n    continue;\n  }\n  if (candidate && typeof candidate === 'object') {\n    parsed = candidate;\n    break;\n  }\n}\n\nconst collectArrays = (value) => {\n  if (!value) return [];\n  if (Array.isArray(value)) return [value];\n  if (typeof value !== 'object') return [];\n  const arrays = [];\n  for (const key of ['articles', 'items', 'links', 'headlines', 'results', 'data']) {\n    if (Array.isArray(value[key])) arrays.push(value[key]);\n  }\n  if (Array.isArray(value.choices)) {\n    for (const choice of value.choices) {\n      const content = choice?.message?.content;\n      const parsedContent = parseMaybeJson(content);\n      arrays.push(...collectArrays(parsedContent));\n    }\n  }\n  return arrays;\n};\n\nconst llmLinks = normalizeLinks(collectArrays(parsed).flat());\nconst selectedLinks = (llmLinks.length ? llmLinks : fallbackLinks).slice(0, 12);\n\nreturn selectedLinks.map((article) => ({\n  json: {\n    district,\n    article_url: article.url,\n    article_title: article.title,\n  },\n}));"
       },
       "id": "m6",
       "name": "Extract Unique Article URLs",
@@ -191,7 +191,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const district = $('For Each District').item.json.district;\nconst adRows = items.map((x) => x.json);\nconst articleRows = $('Fetch District Articles').all().map((x) => x.json);\nconst makeToken = () => crypto.randomUUID();\nconst clickRows = [];\nconst articleRowsWithTokens = [];\nconst adTokenById = {};\n\nfor (const article of articleRows) {\n  const destinationUrl = String(article.source_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  articleRowsWithTokens.push({ ...article, token });\n}\n\nfor (const ad of adRows) {\n  const destinationUrl = String(ad.tracking_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  const adId = Number(ad.id);\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: Number.isFinite(adId) ? adId : null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  if (Number.isFinite(adId)) {\n    adTokenById[String(adId)] = token;\n  }\n}\n\nconst escapeSql = (value) => String(value).replace(/'/g, \"''\");\nconst valuesSql = clickRows\n  .map((row) => {\n    const adIdSql = row.ad_id === null ? 'NULL' : row.ad_id;\n    return `('${escapeSql(row.token)}', ${row.campaign_id}, ${adIdSql}, '${escapeSql(\n      row.district\n    )}', '${escapeSql(row.destination_url)}', '${escapeSql(row.created_at)}')`;\n  })\n  .join(',');\n\nconst insertSql = valuesSql\n  ? `INSERT OR IGNORE INTO click_links (token, campaign_id, ad_id, district, destination_url, created_at) VALUES ${valuesSql}`\n  : '';\n\nconst adRowsWithTokens = adRows.map((ad) => ({\n  ...ad,\n  token: adTokenById[String(ad.id)] || '',\n}));\n\nreturn [\n  {\n    json: {\n      district,\n      insertSql,\n      articleRows: articleRowsWithTokens,\n      adRows: adRowsWithTokens,\n    },\n  },\n];\n"
+        "jsCode": "const district = $('For Each District').item.json.district;\nconst adRows = items.map((x) => x.json);\nconst articleRows = $('Fetch District Articles').all().map((x) => x.json);\nconst makeToken = () => crypto.randomUUID();\nconst clickRows = [];\nconst clickTokens = [];\nconst articleRowsWithTokens = [];\nconst adTokenById = {};\n\nfor (const article of articleRows) {\n  const destinationUrl = String(article.source_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  clickTokens.push(token);\n  articleRowsWithTokens.push({ ...article, token });\n}\n\nfor (const ad of adRows) {\n  const destinationUrl = String(ad.tracking_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  const adId = Number(ad.id);\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: Number.isFinite(adId) ? adId : null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  clickTokens.push(token);\n  if (Number.isFinite(adId)) {\n    adTokenById[String(adId)] = token;\n  }\n}\n\nconst escapeSql = (value) => String(value).replace(/'/g, \"''\");\nconst valuesSql = clickRows\n  .map((row) => {\n    const adIdSql = row.ad_id === null ? 'NULL' : row.ad_id;\n    return \"('\" +\n      escapeSql(row.token) +\n      \"', \" +\n      row.campaign_id +\n      \", \" +\n      adIdSql +\n      \", '\" +\n      escapeSql(row.district) +\n      \"', '\" +\n      escapeSql(row.destination_url) +\n      \"', '\" +\n      escapeSql(row.created_at) +\n      \"')\";\n  })\n  .join(',');\n\nconst insertSql = valuesSql\n  ? 'INSERT OR IGNORE INTO click_links (token, campaign_id, ad_id, district, destination_url, created_at) VALUES ' + valuesSql\n  : '';\n\nconst adRowsWithTokens = adRows.map((ad) => ({\n  ...ad,\n  token: adTokenById[String(ad.id)] || '',\n}));\n\nreturn [\n  {\n    json: {\n      district,\n      insertSql,\n      clickTokens,\n      articleRows: articleRowsWithTokens,\n      adRows: adRowsWithTokens,\n    },\n  },\n];"
       },
       "id": "m11",
       "name": "Generate Click Tokens",
@@ -385,6 +385,52 @@
       "position": [
         4380,
         250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const campaignId = Number(\n  $('Start Campaign').item?.json?.data?.id || $('Start Campaign').item?.json?.id || 0\n);\nconst tokens = Array.from(\n  new Set(\n    (($('Generate Click Tokens').item?.json?.clickTokens) || [])\n      .map((token) => String(token || '').trim())\n      .filter(Boolean)\n  )\n);\nif (!campaignId || !tokens.length) {\n  return [{ json: { sql: 'SELECT 1', campaignId: campaignId || null, tokenCount: tokens.length } }];\n}\nconst escapeSql = (value) => String(value).replace(/'/g, \"''\");\nconst tokenSql = tokens.map((token) => \"'\" + escapeSql(token) + \"'\").join(',');\nconst sql = 'UPDATE click_links SET campaign_id = ' + campaignId + ' WHERE token IN (' + tokenSql + ')';\nreturn [{ json: { sql, campaignId, tokenCount: tokens.length } }];"
+      },
+      "id": "m16c",
+      "name": "Build D1 Campaign Update SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\": $json.sql || \"SELECT 1\"}",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "m16d",
+      "name": "Update D1 Token Campaign IDs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4170,
+        80
       ]
     }
   ],
@@ -588,7 +634,7 @@
       "main": [
         [
           {
-            "node": "Fetch DISTRICT_IP_MAP Variable",
+            "node": "Build D1 Campaign Update SQL",
             "type": "main",
             "index": 0
           }
@@ -622,6 +668,28 @@
         [
           {
             "node": "Log Campaign Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build D1 Campaign Update SQL": {
+      "main": [
+        [
+          {
+            "node": "Update D1 Token Campaign IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update D1 Token Campaign IDs": {
+      "main": [
+        [
+          {
+            "node": "Fetch DISTRICT_IP_MAP Variable",
             "type": "main",
             "index": 0
           }
