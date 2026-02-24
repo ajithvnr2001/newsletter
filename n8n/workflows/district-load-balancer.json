@@ -8,7 +8,10 @@
       "name": "Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [220, 260]
+      "position": [
+        220,
+        260
+      ]
     },
     {
       "parameters": {
@@ -19,17 +22,49 @@
       "name": "Get Subscriber Counts",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [430, 260]
+      "position": [
+        430,
+        260
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const ips = ($env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nif (!ips.length) throw new Error('ACTIVE_IPS empty');\nconst districts = items\n  .map((i) => ({ district: String(i.json.district || '').toLowerCase(), subscribers: Number(i.json.subscribers || 0) }))\n  .filter((d) => d.district);\nconst loads = ips.map((ip) => ({ ip, load: 0 }));\nconst mapping = {};\nfor (const district of districts) {\n  loads.sort((a, b) => a.load - b.load);\n  mapping[district.district] = loads[0].ip;\n  loads[0].load += district.subscribers;\n}\nreturn [{ json: { mapping, loads } }];"
+        "url": "={{$env.N8N_API_URL}}/variables/ACTIVE_IPS",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{$env.N8N_API_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "d2a",
+      "name": "Fetch ACTIVE_IPS Variable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const variableValue = $('Fetch ACTIVE_IPS Variable').item?.json?.data?.value || '';\nconst ips = String(variableValue || $env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nif (!ips.length) throw new Error('ACTIVE_IPS empty');\nconst subscriberRows = $('Get Subscriber Counts').all()\n  .map((i) => ({ district: String(i.json.district || '').toLowerCase(), subscribers: Number(i.json.subscribers || 0) }))\n  .filter((d) => d.district);\nconst fallbackDistricts = ($env.ACTIVE_DISTRICTS || 'chennai,coimbatore,madurai,trichy,virudhunagar')\n  .split(',')\n  .map((d) => d.trim().toLowerCase())\n  .filter(Boolean)\n  .map((district) => ({ district, subscribers: 0 }));\nconst districts = subscriberRows.length ? subscriberRows : fallbackDistricts;\nconst loads = ips.map((ip) => ({ ip, load: 0 }));\nconst mapping = {};\nfor (const district of districts) {\n  loads.sort((a, b) => a.load - b.load);\n  mapping[district.district] = loads[0].ip;\n  loads[0].load += district.subscribers;\n}\nreturn [{ json: { mapping, loads } }];"
       },
       "id": "d3",
       "name": "Greedy Bin Packing",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [640, 260]
+      "position": [
+        640,
+        260
+      ]
     },
     {
       "parameters": {
@@ -38,8 +73,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-N8N-API-KEY", "value": "={{$env.N8N_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{$env.N8N_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -50,7 +91,10 @@
       "name": "Update DISTRICT_IP_MAP Variable",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [850, 260]
+      "position": [
+        850,
+        260
+      ]
     },
     {
       "parameters": {
@@ -60,7 +104,10 @@
       "name": "Run Postfix Config over SSH",
       "type": "n8n-nodes-base.ssh",
       "typeVersion": 1,
-      "position": [1060, 260],
+      "position": [
+        1060,
+        260
+      ],
       "credentials": {
         "sshPassword": {
           "id": "postfix-ssh",
@@ -71,16 +118,59 @@
   ],
   "connections": {
     "Workflow Trigger": {
-      "main": [[{ "node": "Get Subscriber Counts", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Get Subscriber Counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Get Subscriber Counts": {
-      "main": [[{ "node": "Greedy Bin Packing", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch ACTIVE_IPS Variable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Greedy Bin Packing": {
-      "main": [[{ "node": "Update DISTRICT_IP_MAP Variable", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Update DISTRICT_IP_MAP Variable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Update DISTRICT_IP_MAP Variable": {
-      "main": [[{ "node": "Run Postfix Config over SSH", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Run Postfix Config over SSH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch ACTIVE_IPS Variable": {
+      "main": [
+        [
+          {
+            "node": "Greedy Bin Packing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {},

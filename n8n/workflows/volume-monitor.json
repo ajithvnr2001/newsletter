@@ -5,35 +5,76 @@
     {
       "parameters": {
         "triggerTimes": {
-          "item": [{ "mode": "everyDay", "hour": 7, "minute": 48 }]
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 7,
+              "minute": 48
+            }
+          ]
         }
       },
       "id": "v1",
       "name": "07:48 Trigger",
       "type": "n8n-nodes-base.cron",
       "typeVersion": 1,
-      "position": [220, 280]
+      "position": [
+        220,
+        280
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COALESCE(SUM(sent_count), 0) AS total_sends FROM campaign_metrics WHERE created_at::date = CURRENT_DATE"
+        "query": "SELECT COUNT(*)::int AS total_subscribers FROM subscribers WHERE status = 'enabled'"
       },
       "id": "v2",
-      "name": "Get Daily Total Sends",
+      "name": "Get Subscriber Count",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [430, 280]
+      "position": [
+        430,
+        280
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const total = Number(items[0].json.total_sends || 0);\nconst activeIps = ($env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nconst currentIps = Math.max(activeIps.length, 1);\nconst neededIps = Math.max(1, Math.ceil(total / 2000));\nconst needsScale = neededIps > currentIps;\nconst message = needsScale\n  ? `🆙 Volume ${total} requires scale: ${currentIps} -> ${neededIps} IPs`\n  : `✅ Healthy volume: ${total} sends across ${currentIps} IPs`;\nreturn [{ json: { total, currentIps, neededIps, needsScale, message } }];"
+        "url": "={{$env.N8N_API_URL}}/variables/ACTIVE_IPS",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{$env.N8N_API_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "v2a",
+      "name": "Fetch ACTIVE_IPS Variable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const totalSubscribers = Number(items[0].json.total_subscribers || 0);\nconst variableValue = $('Fetch ACTIVE_IPS Variable').item?.json?.data?.value || '';\nconst activeIpsRaw = String(variableValue || $env.ACTIVE_IPS || '');\nconst activeIps = activeIpsRaw.split(',').map((v) => v.trim()).filter(Boolean);\nconst currentIps = Math.max(activeIps.length, 1);\nconst neededIps = Math.max(1, Math.ceil(totalSubscribers / 2000));\nconst needsScale = neededIps > currentIps;\nconst message = needsScale\n  ? `🆙 Subscribers ${totalSubscribers} require scale: ${currentIps} -> ${neededIps} IPs`\n  : `✅ Healthy capacity: ${totalSubscribers} subscribers across ${currentIps} IPs`;\nreturn [{ json: { totalSubscribers, currentIps, neededIps, needsScale, message } }];"
       },
       "id": "v3",
       "name": "Calculate Required IPs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [640, 280]
+      "position": [
+        640,
+        280
+      ]
     },
     {
       "parameters": {
@@ -50,7 +91,10 @@
       "name": "Needs Scale?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [850, 280]
+      "position": [
+        850,
+        280
+      ]
     },
     {
       "parameters": {
@@ -61,7 +105,10 @@
       "name": "Trigger Auto-IP Purchase",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [1060, 200]
+      "position": [
+        1060,
+        200
+      ]
     },
     {
       "parameters": {
@@ -72,24 +119,85 @@
       "name": "Send Summary Alert",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [1060, 360]
+      "position": [
+        1060,
+        360
+      ]
     }
   ],
   "connections": {
     "07:48 Trigger": {
-      "main": [[{ "node": "Get Daily Total Sends", "type": "main", "index": 0 }]]
-    },
-    "Get Daily Total Sends": {
-      "main": [[{ "node": "Calculate Required IPs", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Get Subscriber Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Calculate Required IPs": {
-      "main": [[{ "node": "Needs Scale?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Needs Scale?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Needs Scale?": {
-      "main": [[{ "node": "Trigger Auto-IP Purchase", "type": "main", "index": 0 }], [{ "node": "Send Summary Alert", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Trigger Auto-IP Purchase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Summary Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Trigger Auto-IP Purchase": {
-      "main": [[{ "node": "Send Summary Alert", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send Summary Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch ACTIVE_IPS Variable": {
+      "main": [
+        [
+          {
+            "node": "Calculate Required IPs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Subscriber Count": {
+      "main": [
+        [
+          {
+            "node": "Fetch ACTIVE_IPS Variable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {},

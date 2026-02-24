@@ -74,6 +74,25 @@ CREATE INDEX IF NOT EXISTS idx_ad_performance_date ON ad_performance(date DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_performance_ad_id ON ad_performance(ad_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_performance_district ON ad_performance(district, date DESC);
 
+CREATE TABLE IF NOT EXISTS subscribers (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    district VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'enabled',
+    listmonk_subscriber_id INTEGER,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT subscribers_district_check CHECK (
+        district IN ('chennai', 'coimbatore', 'madurai', 'trichy', 'virudhunagar')
+    ),
+    CONSTRAINT subscribers_status_check CHECK (
+        status IN ('enabled', 'disabled', 'unsubscribed', 'bounced')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscribers_district_status ON subscribers(district, status);
+CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status);
+
 CREATE TABLE IF NOT EXISTS campaign_metrics (
     id SERIAL PRIMARY KEY,
     campaign_id INTEGER NOT NULL,

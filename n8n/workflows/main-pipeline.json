@@ -333,10 +333,49 @@
     },
     {
       "parameters": {
+        "url": "={{$env.N8N_API_URL}}/variables/DISTRICT_IP_MAP",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{$env.N8N_API_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "m16a",
+      "name": "Fetch DISTRICT_IP_MAP Variable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3960,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const district = $('For Each District').item.json.district;\nconst campaignId = $('Start Campaign').item?.json?.data?.id || $('Start Campaign').item?.json?.id || null;\nconst variableValue = $('Fetch DISTRICT_IP_MAP Variable').item?.json?.data?.value || '';\nlet sendingIp = '';\ntry {\n  const variableMap = JSON.parse(variableValue || '{}');\n  sendingIp = variableMap[district] || '';\n} catch (error) {}\nif (!sendingIp) {\n  try {\n    const envMap = JSON.parse($env.DISTRICT_IP_MAP || '{}');\n    sendingIp = envMap[district] || '';\n  } catch (error) {}\n}\nif (!sendingIp) {\n  const active = String($env.ACTIVE_IPS || '95.217.13.142').split(',').map((v) => v.trim()).filter(Boolean);\n  sendingIp = active[0] || '95.217.13.142';\n}\nreturn [{ json: { campaignId, district, sendingIp } }];"
+      },
+      "id": "m16b",
+      "name": "Resolve Sending IP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4170,
+        250
+      ]
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO campaign_metrics (campaign_id, district, sending_ip, sent_count, send_started_at, send_completed_at) VALUES ($1,$2,$3,$4,NOW(),NOW())",
         "options": {
-          "queryReplacement": "={{[$json.data.id, $('For Each District').item.json.district, ($env.DISTRICT_IP_MAP && JSON.parse($env.DISTRICT_IP_MAP)[$('For Each District').item.json.district]) || '95.217.13.142', 0]}}"
+          "queryReplacement": "={{[$json.campaignId, $json.district, $json.sendingIp, 0]}}"
         }
       },
       "id": "m17",
@@ -344,7 +383,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        3960,
+        4380,
         250
       ]
     }
@@ -549,7 +588,7 @@
       "main": [
         [
           {
-            "node": "Log Campaign Metrics",
+            "node": "Fetch DISTRICT_IP_MAP Variable",
             "type": "main",
             "index": 0
           }
@@ -561,6 +600,28 @@
         [
           {
             "node": "For Each District",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch DISTRICT_IP_MAP Variable": {
+      "main": [
+        [
+          {
+            "node": "Resolve Sending IP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Sending IP": {
+      "main": [
+        [
+          {
+            "node": "Log Campaign Metrics",
             "type": "main",
             "index": 0
           }
