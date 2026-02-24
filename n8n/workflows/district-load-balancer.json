@@ -1,0 +1,88 @@
+{
+  "name": "District Load Balancer Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d1",
+      "name": "Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 260]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT district, COUNT(*)::int AS subscribers FROM subscribers WHERE status = 'enabled' GROUP BY district ORDER BY subscribers DESC"
+      },
+      "id": "d2",
+      "name": "Get Subscriber Counts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [430, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ips = ($env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nif (!ips.length) throw new Error('ACTIVE_IPS empty');\nconst districts = items\n  .map((i) => ({ district: String(i.json.district || '').toLowerCase(), subscribers: Number(i.json.subscribers || 0) }))\n  .filter((d) => d.district);\nconst loads = ips.map((ip) => ({ ip, load: 0 }));\nconst mapping = {};\nfor (const district of districts) {\n  loads.sort((a, b) => a.load - b.load);\n  mapping[district.district] = loads[0].ip;\n  loads[0].load += district.subscribers;\n}\nreturn [{ json: { mapping, loads } }];"
+      },
+      "id": "d3",
+      "name": "Greedy Bin Packing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 260]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_API_URL}}/variables/DISTRICT_IP_MAP",
+        "method": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{$env.N8N_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"key\":\"DISTRICT_IP_MAP\",\"value\":JSON.stringify($json.mapping)}"
+      },
+      "id": "d4",
+      "name": "Update DISTRICT_IP_MAP Variable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 260]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/namma/scripts/generate_postfix_config.sh"
+      },
+      "id": "d5",
+      "name": "Run Postfix Config over SSH",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1060, 260],
+      "credentials": {
+        "sshPassword": {
+          "id": "postfix-ssh",
+          "name": "Postfix SSH"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [[{ "node": "Get Subscriber Counts", "type": "main", "index": 0 }]]
+    },
+    "Get Subscriber Counts": {
+      "main": [[{ "node": "Greedy Bin Packing", "type": "main", "index": 0 }]]
+    },
+    "Greedy Bin Packing": {
+      "main": [[{ "node": "Update DISTRICT_IP_MAP Variable", "type": "main", "index": 0 }]]
+    },
+    "Update DISTRICT_IP_MAP Variable": {
+      "main": [[{ "node": "Run Postfix Config over SSH", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

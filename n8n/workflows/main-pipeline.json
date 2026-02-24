@@ -1,0 +1,573 @@
+{
+  "name": "Main Pipeline Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "main-pipeline",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "m1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        180,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const districts = ($env.ACTIVE_DISTRICTS || 'chennai,coimbatore,madurai,trichy,virudhunagar')\n  .split(',')\n  .map((d) => d.trim())\n  .filter(Boolean);\nreturn districts.map((district) => ({ json: { district } }));"
+      },
+      "id": "m2",
+      "name": "Build District Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        390,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "m3",
+      "name": "For Each District",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        600,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{$json.district}}+Tamil&hl=ta&gl=IN&ceid=IN:ta",
+        "responseFormat": "string",
+        "options": {}
+      },
+      "id": "m4",
+      "name": "Fetch Google News RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        810,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.NVIDIA_API_KEYS.split(',')[0]}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\": $env.NVIDIA_MODEL || \"meta/llama-3.1-70b-instruct\", \"temperature\": 0.2, \"messages\": [{\"role\":\"system\",\"content\":\"Deduplicate Tamil RSS headlines and return compact JSON.\"}, {\"role\":\"user\",\"content\": $json.body || $json.data || \"\"}]}",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "m5",
+      "name": "LLM Deduplicate Headlines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const district = $('For Each District').item.json.district;\nconst rawRss = ($('Fetch Google News RSS').item.json.body || $('Fetch Google News RSS').item.json.data || '');\nconst links = [...rawRss.matchAll(/<item>[\\s\\S]*?<title><!\\[CDATA\\[(.*?)\\]\\]><\\/title>[\\s\\S]*?<link>(.*?)<\\/link>/g)]\n  .slice(0, 12)\n  .map((m) => ({ title: m[1]?.trim() || 'Untitled', url: m[2]?.trim() || '' }))\n  .filter((r) => r.url);\nreturn links.map((article) => ({ json: { district, article_url: article.url, article_title: article.title } }));"
+      },
+      "id": "m6",
+      "name": "Extract Unique Article URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1230,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "m7",
+      "name": "For Each Article",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SCRAPLING_API_URL || 'http://scrapling-api:8000/scrape'}}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"url\": $json.article_url, \"district\": $json.district}",
+        "options": {}
+      },
+      "id": "m8",
+      "name": "Scrape + Rewrite",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1650,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (source_url, publisher_name, cdn_image_url, raw_title, ai_summary, ai_title, category, location) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (source_url) DO UPDATE SET ai_summary=EXCLUDED.ai_summary, ai_title=EXCLUDED.ai_title, cdn_image_url=EXCLUDED.cdn_image_url",
+        "options": {
+          "queryReplacement": "={{[$('For Each Article').item.json.article_url, $json.publisher || 'Unknown', $json.image_url || null, $json.title || $('For Each Article').item.json.article_title, $json.ai_summary || '', $json.ai_title || '', 'general', $('For Each District').item.json.district]}}"
+        }
+      },
+      "id": "m9",
+      "name": "Insert Article",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1860,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT source_url, publisher_name, cdn_image_url, ai_title, ai_summary, raw_title FROM articles WHERE location = $1 AND created_at::date = CURRENT_DATE ORDER BY created_at DESC LIMIT 8",
+        "options": {
+          "queryReplacement": "={{[$('For Each District').item.json.district]}}"
+        }
+      },
+      "id": "m10a",
+      "name": "Fetch District Articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2070,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, position, html_content, tracking_url FROM ads WHERE is_active = true AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE AND (district = $1 OR district = 'all') ORDER BY district DESC, priority DESC",
+        "options": {
+          "queryReplacement": "={{[$('For Each District').item.json.district]}}"
+        }
+      },
+      "id": "m10",
+      "name": "Get Active Ads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        2280,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const district = $('For Each District').item.json.district;\nconst adRows = items.map((x) => x.json);\nconst articleRows = $('Fetch District Articles').all().map((x) => x.json);\nconst makeToken = () => crypto.randomUUID();\nconst clickRows = [];\nconst articleRowsWithTokens = [];\nconst adTokenById = {};\n\nfor (const article of articleRows) {\n  const destinationUrl = String(article.source_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  articleRowsWithTokens.push({ ...article, token });\n}\n\nfor (const ad of adRows) {\n  const destinationUrl = String(ad.tracking_url || '').trim();\n  if (!destinationUrl) continue;\n  const token = makeToken();\n  const adId = Number(ad.id);\n  clickRows.push({\n    token,\n    campaign_id: 0,\n    ad_id: Number.isFinite(adId) ? adId : null,\n    district,\n    destination_url: destinationUrl,\n    created_at: new Date().toISOString(),\n  });\n  if (Number.isFinite(adId)) {\n    adTokenById[String(adId)] = token;\n  }\n}\n\nconst escapeSql = (value) => String(value).replace(/'/g, \"''\");\nconst valuesSql = clickRows\n  .map((row) => {\n    const adIdSql = row.ad_id === null ? 'NULL' : row.ad_id;\n    return `('${escapeSql(row.token)}', ${row.campaign_id}, ${adIdSql}, '${escapeSql(\n      row.district\n    )}', '${escapeSql(row.destination_url)}', '${escapeSql(row.created_at)}')`;\n  })\n  .join(',');\n\nconst insertSql = valuesSql\n  ? `INSERT OR IGNORE INTO click_links (token, campaign_id, ad_id, district, destination_url, created_at) VALUES ${valuesSql}`\n  : '';\n\nconst adRowsWithTokens = adRows.map((ad) => ({\n  ...ad,\n  token: adTokenById[String(ad.id)] || '',\n}));\n\nreturn [\n  {\n    json: {\n      district,\n      insertSql,\n      articleRows: articleRowsWithTokens,\n      adRows: adRowsWithTokens,\n    },\n  },\n];\n"
+      },
+      "id": "m11",
+      "name": "Generate Click Tokens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2490,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\": $json.insertSql || \"SELECT 1\"}",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "m12",
+      "name": "Insert D1 Tokens",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2700,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const district = String($json.district || \"chennai\").toLowerCase();\nconst districtNamesTa = {\n  chennai: \"சென்னை\",\n  coimbatore: \"கோயம்புத்தூர்\",\n  madurai: \"மதுரை\",\n  trichy: \"திருச்சி\",\n  virudhunagar: \"விருதுநகர்\",\n};\nconst districtTamil = districtNamesTa[district] || district;\nconst districtEnglish = district.charAt(0).toUpperCase() + district.slice(1);\nconst dateLabel = new Date().toLocaleDateString(\"en-IN\", {\n  day: \"2-digit\",\n  month: \"short\",\n  year: \"numeric\",\n});\nconst escapeHtml = (value) =>\n  String(value || \"\")\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\\\"/g, \"&quot;\")\n    .replace(/'/g, \"&#39;\");\n\nconst articleRows = Array.isArray($json.articleRows) ? $json.articleRows : [];\nconst articlesBlock = articleRows\n  .map((article) => {\n    const title = escapeHtml(article.ai_title || article.raw_title || \"செய்தி\");\n    const summary = escapeHtml(\n      String(article.ai_summary || \"\").split(/\\s+/).slice(0, 45).join(\" \")\n    );\n    const imageUrl = escapeHtml(article.cdn_image_url || \"\");\n    const sourceUrl = escapeHtml(article.source_url || \"\");\n    const token = escapeHtml(article.token || \"\");\n    const trackedUrl = token\n      ? `https://click.nammaoorunews.com/l/${token}?sid={{subscriber_id}}`\n      : sourceUrl;\n    return `<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin:0 0 14px;border-bottom:1px solid #fed7aa;padding-bottom:12px;\"><tr><td width=\"90\" valign=\"top\">${imageUrl ? `<img src=\"${imageUrl}\" alt=\"\" width=\"80\" height=\"80\" style=\"display:block;width:80px;height:80px;border-radius:8px;object-fit:cover;\" />` : \"\"}</td><td valign=\"top\" style=\"padding-left:10px;\"><p style=\"margin:0 0 6px;font-size:15px;font-weight:700;color:#111827;\">${title}</p><p style=\"margin:0 0 8px;font-size:13px;color:#4b5563;line-height:1.5;\">${summary}</p><a href=\"${trackedUrl}\" style=\"font-size:13px;color:#ea580c;text-decoration:none;\">முழு செய்தி படிக்க →</a></td></tr></table>`;\n  })\n  .join(\"\");\n\nconst adRows = Array.isArray($json.adRows) ? $json.adRows : [];\nconst adByPosition = {};\nfor (const ad of adRows) {\n  if (ad && ad.position) adByPosition[ad.position] = ad;\n}\nconst applyTokenToAdHtml = (ad) => {\n  if (!ad || !ad.html_content) return \"\";\n  if (!ad.token || !ad.tracking_url) return ad.html_content;\n  const trackedUrl = `https://click.nammaoorunews.com/l/${ad.token}?sid={{subscriber_id}}`;\n  return String(ad.html_content).split(String(ad.tracking_url)).join(trackedUrl);\n};\nconst midAd = applyTokenToAdHtml(adByPosition.mid || adByPosition.header || null);\nconst footerAd = applyTokenToAdHtml(adByPosition.footer || adByPosition.inline || null);\n\nconst template = `<!doctype html>\n<html lang=\"ta\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Namma Ooru News</title>\n    <style>\n      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700&display=swap');\n    </style>\n  </head>\n  <body style=\"margin:0;padding:0;background:#fff7ed;font-family:'Noto Sans Tamil',Arial,sans-serif;color:#1f2937;\">\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"padding:20px 0;background:#fff7ed;\">\n      <tr>\n        <td align=\"center\">\n          <table role=\"presentation\" width=\"600\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #fed7aa;\">\n            <tr>\n              <td style=\"background:#f97316;padding:20px 24px;color:#fff;\">\n                <h1 style=\"margin:0;font-size:24px;line-height:1.2;\">{{DISTRICT_TAMIL}} | {{DISTRICT_ENGLISH}}</h1>\n                <p style=\"margin:8px 0 0;font-size:14px;opacity:0.95;\">{{DATE}}</p>\n              </td>\n            </tr>\n            <tr>\n              <td style=\"padding:24px 24px 4px;font-size:16px;line-height:1.6;\">{{ARTICLES_BLOCK}}</td>\n            </tr>\n            <tr>\n              <td style=\"padding:8px 24px;\">{{MID_AD}}</td>\n            </tr>\n            <tr>\n              <td style=\"padding:8px 24px 24px;\">{{FOOTER_AD}}</td>\n            </tr>\n            <tr>\n              <td style=\"background:#fff1e6;padding:18px 24px;font-size:13px;color:#7c2d12;line-height:1.6;\">\n                <p style=\"margin:0 0 6px;\">You are receiving this newsletter because you subscribed to Namma Ooru News.</p>\n                <p style=\"margin:0;\"><a href=\"{{unsubscribe_url}}\" style=\"color:#9a3412;text-decoration:underline;\">Unsubscribe</a></p>\n              </td>\n            </tr>\n          </table>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>`;\n\nconst body = template\n  .replace(\"{{DISTRICT_TAMIL}}\", districtTamil)\n  .replace(\"{{DISTRICT_ENGLISH}}\", districtEnglish)\n  .replace(\"{{DATE}}\", dateLabel)\n  .replace(\n    \"{{ARTICLES_BLOCK}}\",\n    articlesBlock || \"<p style=\\\"font-size:14px;color:#4b5563;\\\">இன்றைக்கு புதிய செய்திகள் இல்லை.</p>\"\n  )\n  .replace(\"{{MID_AD}}\", midAd)\n  .replace(\"{{FOOTER_AD}}\", footerAd);\n\nreturn [\n  {\n    json: {\n      district,\n      body,\n      subject: `${districtTamil} | ${districtEnglish} Daily | Namma Ooru News`,\n    },\n  },\n];\n"
+      },
+      "id": "m13",
+      "name": "Render Newsletter HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2910,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT listmonk_list_id FROM district_lists WHERE district = $1), 1) AS list_id",
+        "options": {
+          "queryReplacement": "={{[$('For Each District').item.json.district]}}"
+        }
+      },
+      "id": "m14a",
+      "name": "Resolve District List",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3120,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.LISTMONK_URL || 'http://listmonk:9000'}}/api/campaigns",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"name\":$('Render Newsletter HTML').item.json.subject,\"subject\":$('Render Newsletter HTML').item.json.subject,\"from_email\":$env.LISTMONK_FROM_EMAIL || 'Namma Ooru News <news@nammaoorunews.com>',\"content_type\":\"html\",\"messenger\":\"email\",\"type\":\"regular\",\"body\":$('Render Newsletter HTML').item.json.body,\"lists\":[Number($('Resolve District List').item.json.list_id || 1)],\"status\":\"draft\"}",
+        "options": {}
+      },
+      "id": "m14",
+      "name": "Create Listmonk Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3330,
+        250
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "listmonk-http-basic",
+          "name": "Listmonk API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "id": "m15",
+      "name": "Wait For Send Window",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        3540,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.LISTMONK_URL || 'http://listmonk:9000'}}/api/campaigns/{{$json.data.id}}",
+        "method": "PUT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\":\"running\"}",
+        "options": {}
+      },
+      "id": "m16",
+      "name": "Start Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3750,
+        250
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "listmonk-http-basic",
+          "name": "Listmonk API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO campaign_metrics (campaign_id, district, sending_ip, sent_count, send_started_at, send_completed_at) VALUES ($1,$2,$3,$4,NOW(),NOW())",
+        "options": {
+          "queryReplacement": "={{[$json.data.id, $('For Each District').item.json.district, ($env.DISTRICT_IP_MAP && JSON.parse($env.DISTRICT_IP_MAP)[$('For Each District').item.json.district]) || '95.217.13.142', 0]}}"
+        }
+      },
+      "id": "m17",
+      "name": "Log Campaign Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        3960,
+        250
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build District Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build District Queue": {
+      "main": [
+        [
+          {
+            "node": "For Each District",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each District": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch Google News RSS": {
+      "main": [
+        [
+          {
+            "node": "LLM Deduplicate Headlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Deduplicate Headlines": {
+      "main": [
+        [
+          {
+            "node": "Extract Unique Article URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Unique Article URLs": {
+      "main": [
+        [
+          {
+            "node": "For Each Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Article": {
+      "main": [
+        [
+          {
+            "node": "Scrape + Rewrite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch District Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape + Rewrite": {
+      "main": [
+        [
+          {
+            "node": "Insert Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Article": {
+      "main": [
+        [
+          {
+            "node": "For Each Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch District Articles": {
+      "main": [
+        [
+          {
+            "node": "Get Active Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Ads": {
+      "main": [
+        [
+          {
+            "node": "Generate Click Tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Click Tokens": {
+      "main": [
+        [
+          {
+            "node": "Insert D1 Tokens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert D1 Tokens": {
+      "main": [
+        [
+          {
+            "node": "Render Newsletter HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Newsletter HTML": {
+      "main": [
+        [
+          {
+            "node": "Resolve District List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve District List": {
+      "main": [
+        [
+          {
+            "node": "Create Listmonk Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Listmonk Draft": {
+      "main": [
+        [
+          {
+            "node": "Wait For Send Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Send Window": {
+      "main": [
+        [
+          {
+            "node": "Start Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Campaign": {
+      "main": [
+        [
+          {
+            "node": "Log Campaign Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Campaign Metrics": {
+      "main": [
+        [
+          {
+            "node": "For Each District",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

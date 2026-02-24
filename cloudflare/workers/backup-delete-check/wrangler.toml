@@ -1,0 +1,11 @@
+name = "namma-backup-delete-check"
+main = "index.js"
+compatibility_date = "2026-02-24"
+workers_dev = false
+
+[triggers]
+crons = ["30 3 * * *"]
+
+[[routes]]
+pattern = "delete-check.nammaoorunews.com/*"
+zone_name = "nammaoorunews.com"

@@ -1,0 +1,97 @@
+{
+  "name": "Volume Monitor Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [{ "mode": "everyDay", "hour": 7, "minute": 48 }]
+        }
+      },
+      "id": "v1",
+      "name": "07:48 Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(SUM(sent_count), 0) AS total_sends FROM campaign_metrics WHERE created_at::date = CURRENT_DATE"
+      },
+      "id": "v2",
+      "name": "Get Daily Total Sends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [430, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const total = Number(items[0].json.total_sends || 0);\nconst activeIps = ($env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nconst currentIps = Math.max(activeIps.length, 1);\nconst neededIps = Math.max(1, Math.ceil(total / 2000));\nconst needsScale = neededIps > currentIps;\nconst message = needsScale\n  ? `🆙 Volume ${total} requires scale: ${currentIps} -> ${neededIps} IPs`\n  : `✅ Healthy volume: ${total} sends across ${currentIps} IPs`;\nreturn [{ json: { total, currentIps, neededIps, needsScale, message } }];"
+      },
+      "id": "v3",
+      "name": "Calculate Required IPs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.needsScale}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "v4",
+      "name": "Needs Scale?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 280]
+    },
+    {
+      "parameters": {
+        "workflowId": "Auto IP Purchase Workflow",
+        "options": {}
+      },
+      "id": "v5",
+      "name": "Trigger Auto-IP Purchase",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1060, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": "Telegram Alerts Workflow",
+        "options": {}
+      },
+      "id": "v6",
+      "name": "Send Summary Alert",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1060, 360]
+    }
+  ],
+  "connections": {
+    "07:48 Trigger": {
+      "main": [[{ "node": "Get Daily Total Sends", "type": "main", "index": 0 }]]
+    },
+    "Get Daily Total Sends": {
+      "main": [[{ "node": "Calculate Required IPs", "type": "main", "index": 0 }]]
+    },
+    "Calculate Required IPs": {
+      "main": [[{ "node": "Needs Scale?", "type": "main", "index": 0 }]]
+    },
+    "Needs Scale?": {
+      "main": [[{ "node": "Trigger Auto-IP Purchase", "type": "main", "index": 0 }], [{ "node": "Send Summary Alert", "type": "main", "index": 0 }]]
+    },
+    "Trigger Auto-IP Purchase": {
+      "main": [[{ "node": "Send Summary Alert", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

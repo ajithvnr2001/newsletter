@@ -1,0 +1,233 @@
+{
+  "name": "Auto IP Purchase Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1",
+      "name": "Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const active = ($env.ACTIVE_IPS || '').split(',').map((v) => v.trim()).filter(Boolean);\nconst nextIndex = active.length + 1;\nreturn [{ json: { active, nextIndex } }];"
+      },
+      "id": "a2",
+      "name": "Read ACTIVE_IPS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [430, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.hetzner.cloud/v1/primary_ips",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.HETZNER_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"type\":\"ipv4\",\"name\":`namma-ip-${$json.nextIndex}`,\"datacenter\":\"hel1-dc2\",\"auto_delete\":false}",
+        "options": {}
+      },
+      "id": "a3",
+      "name": "Create Primary IP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const nextIndex = $('Read ACTIVE_IPS').item.json.nextIndex;\nconst createdIp = $json.primary_ip.ip;\nconst createdId = $json.primary_ip.id;\nconst ptrHost = nextIndex === 1 ? `mail.${$env.DOMAIN || 'nammaoorunews.com'}` : `mail${nextIndex}.${$env.DOMAIN || 'nammaoorunews.com'}`;\nconst active = $('Read ACTIVE_IPS').item.json.active.concat([createdIp]);\nconst spfValue = `v=spf1 ${active.map((ip) => `ip4:${ip}`).join(' ')} ~all`;\nconst dkimVarName = `DKIM_PUBLIC_IP${nextIndex}`;\nconst dkimPublic = $env[dkimVarName] || '';\nreturn [{ json: { nextIndex, createdIp, createdId, ptrHost, active, spfValue, dkimPublic } }];"
+      },
+      "id": "a4",
+      "name": "Build PTR/SPF/DKIM Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.hetzner.cloud/v1/primary_ips/{{$json.createdId}}/actions/change_dns_ptr",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.HETZNER_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"ip\":$json.createdIp,\"dns_ptr\":$json.ptrHost}",
+        "options": {}
+      },
+      "id": "a5",
+      "name": "Set PTR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1060, 220]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/zones/{{$env.CLOUDFLARE_ZONE_ID}}/dns_records/{{$env.CLOUDFLARE_SPF_RECORD_ID}}",
+        "method": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"type\":\"TXT\",\"name\":\"@\",\"content\":$json.spfValue,\"ttl\":1,\"proxied\":false}",
+        "options": {}
+      },
+      "id": "a6",
+      "name": "Update SPF TXT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1060, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.dkimPublic}}",
+              "operation": "notEmpty"
+            }
+          ]
+        }
+      },
+      "id": "a7",
+      "name": "Has DKIM Key?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1270, 380]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/zones/{{$env.CLOUDFLARE_ZONE_ID}}/dns_records",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"type\":\"TXT\",\"name\":`mail${$json.nextIndex}._domainkey`,\"content\":$json.dkimPublic,\"ttl\":1}",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "a8",
+      "name": "Create DKIM TXT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1480, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_API_URL}}/variables/ACTIVE_IPS",
+        "method": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{$env.N8N_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"key\":\"ACTIVE_IPS\",\"value\":$json.active.join(',')}",
+        "options": {}
+      },
+      "id": "a9",
+      "name": "Update n8n ACTIVE_IPS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1690, 380]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ip_scaling_history (ip_address, ip_id, trigger_reason, daily_sends_at_trigger, ips_before, ips_after, monthly_cost_before, monthly_cost_after, ptr_record, spf_record_updated) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        "options": {
+          "queryReplacement": "={{[$json.createdIp, $json.createdId, 'Auto scale threshold crossed', 0, $json.active.length - 1, $json.active.length, 135 + (($json.active.length - 1) * 54), 135 + ($json.active.length * 54), $json.ptrHost, $json.spfValue]}}"
+        }
+      },
+      "id": "a10",
+      "name": "Insert Scaling History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1900, 380]
+    },
+    {
+      "parameters": {
+        "workflowId": "District Load Balancer Workflow",
+        "options": {}
+      },
+      "id": "a11",
+      "name": "Rebalance Districts",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2110, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "Telegram Alerts Workflow",
+        "options": {}
+      },
+      "id": "a12",
+      "name": "Notify Telegram",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2320, 300]
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [[{ "node": "Read ACTIVE_IPS", "type": "main", "index": 0 }]]
+    },
+    "Read ACTIVE_IPS": {
+      "main": [[{ "node": "Create Primary IP", "type": "main", "index": 0 }]]
+    },
+    "Create Primary IP": {
+      "main": [[{ "node": "Build PTR/SPF/DKIM Payload", "type": "main", "index": 0 }]]
+    },
+    "Build PTR/SPF/DKIM Payload": {
+      "main": [[{ "node": "Set PTR", "type": "main", "index": 0 }, { "node": "Update SPF TXT", "type": "main", "index": 0 }]]
+    },
+    "Update SPF TXT": {
+      "main": [[{ "node": "Has DKIM Key?", "type": "main", "index": 0 }]]
+    },
+    "Has DKIM Key?": {
+      "main": [[{ "node": "Create DKIM TXT", "type": "main", "index": 0 }], [{ "node": "Update n8n ACTIVE_IPS", "type": "main", "index": 0 }]]
+    },
+    "Create DKIM TXT": {
+      "main": [[{ "node": "Update n8n ACTIVE_IPS", "type": "main", "index": 0 }]]
+    },
+    "Update n8n ACTIVE_IPS": {
+      "main": [[{ "node": "Insert Scaling History", "type": "main", "index": 0 }]]
+    },
+    "Insert Scaling History": {
+      "main": [[{ "node": "Rebalance Districts", "type": "main", "index": 0 }]]
+    },
+    "Rebalance Districts": {
+      "main": [[{ "node": "Notify Telegram", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

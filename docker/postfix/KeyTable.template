@@ -1,0 +1,11 @@
+mail._domainkey.${DOMAIN} ${DOMAIN}:mail:/etc/opendkim/keys/mail.private
+mail1._domainkey.${DOMAIN} ${DOMAIN}:mail1:/etc/opendkim/keys/mail1.private
+mail2._domainkey.${DOMAIN} ${DOMAIN}:mail2:/etc/opendkim/keys/mail2.private
+mail3._domainkey.${DOMAIN} ${DOMAIN}:mail3:/etc/opendkim/keys/mail3.private
+mail4._domainkey.${DOMAIN} ${DOMAIN}:mail4:/etc/opendkim/keys/mail4.private
+mail5._domainkey.${DOMAIN} ${DOMAIN}:mail5:/etc/opendkim/keys/mail5.private
+mail6._domainkey.${DOMAIN} ${DOMAIN}:mail6:/etc/opendkim/keys/mail6.private
+mail7._domainkey.${DOMAIN} ${DOMAIN}:mail7:/etc/opendkim/keys/mail7.private
+mail8._domainkey.${DOMAIN} ${DOMAIN}:mail8:/etc/opendkim/keys/mail8.private
+mail9._domainkey.${DOMAIN} ${DOMAIN}:mail9:/etc/opendkim/keys/mail9.private
+mail10._domainkey.${DOMAIN} ${DOMAIN}:mail10:/etc/opendkim/keys/mail10.private

@@ -1,0 +1,15 @@
+name = "namma-spawn-server"
+main = "index.js"
+compatibility_date = "2026-02-24"
+workers_dev = false
+
+[triggers]
+crons = ["25 23 * * *"]
+
+[[routes]]
+pattern = "spawn.nammaoorunews.com/*"
+zone_name = "nammaoorunews.com"
+
+[[r2_buckets]]
+binding = "BOOTSTRAP_BUCKET"
+bucket_name = "namma-bootstrap"

@@ -1,0 +1,6 @@
+*@${DOMAIN} mail._domainkey.${DOMAIN}
+chennai@${DOMAIN} mail1._domainkey.${DOMAIN}
+coimbatore@${DOMAIN} mail2._domainkey.${DOMAIN}
+madurai@${DOMAIN} mail3._domainkey.${DOMAIN}
+trichy@${DOMAIN} mail4._domainkey.${DOMAIN}
+virudhunagar@${DOMAIN} mail5._domainkey.${DOMAIN}

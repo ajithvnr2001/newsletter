@@ -1,0 +1,133 @@
+{
+  "name": "Backup and Delete Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [{ "mode": "everyDay", "hour": 7, "minute": 50 }]
+        }
+      },
+      "id": "b1",
+      "name": "07:50 Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [220, 260]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/namma/namma-ooru-news/scripts/backup_to_r2.sh"
+      },
+      "id": "b2",
+      "name": "Run Backup over SSH",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [430, 260],
+      "credentials": {
+        "sshPassword": {
+          "id": "postfix-ssh",
+          "name": "Postfix SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.exitCode || 0}}",
+              "operation": "equal",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "b3",
+      "name": "Backup Exit Code OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 260]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM articles WHERE created_at < NOW() - INTERVAL '30 days'"
+      },
+      "id": "b4",
+      "name": "Delete Articles Older Than 30 Days",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 190]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "minutes"
+      },
+      "id": "b5",
+      "name": "Wait Until 08:00",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1060, 190]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/namma/namma-ooru-news/scripts/self_delete.sh"
+      },
+      "id": "b6",
+      "name": "Run self_delete.sh over SSH",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1270, 190],
+      "credentials": {
+        "sshPassword": {
+          "id": "postfix-ssh",
+          "name": "Postfix SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{message:'❌ Backup verification failed. Aborting self-delete for safety.'}}];"
+      },
+      "id": "b7",
+      "name": "Build Failure Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 340]
+    },
+    {
+      "parameters": {
+        "workflowId": "Telegram Alerts Workflow",
+        "options": {}
+      },
+      "id": "b8",
+      "name": "Alert Failure",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1060, 340]
+    }
+  ],
+  "connections": {
+    "07:50 Trigger": {
+      "main": [[{ "node": "Run Backup over SSH", "type": "main", "index": 0 }]]
+    },
+    "Run Backup over SSH": {
+      "main": [[{ "node": "Backup Exit Code OK?", "type": "main", "index": 0 }]]
+    },
+    "Backup Exit Code OK?": {
+      "main": [[{ "node": "Delete Articles Older Than 30 Days", "type": "main", "index": 0 }], [{ "node": "Build Failure Message", "type": "main", "index": 0 }]]
+    },
+    "Delete Articles Older Than 30 Days": {
+      "main": [[{ "node": "Wait Until 08:00", "type": "main", "index": 0 }]]
+    },
+    "Wait Until 08:00": {
+      "main": [[{ "node": "Run self_delete.sh over SSH", "type": "main", "index": 0 }]]
+    },
+    "Build Failure Message": {
+      "main": [[{ "node": "Alert Failure", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

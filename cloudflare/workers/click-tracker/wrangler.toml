@@ -1,0 +1,13 @@
+name = "namma-click-tracker"
+main = "index.js"
+compatibility_date = "2026-02-24"
+workers_dev = false
+
+[[routes]]
+pattern = "click.nammaoorunews.com/*"
+zone_name = "nammaoorunews.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "namma-clicks"
+database_id = "${CLOUDFLARE_D1_DATABASE_ID}"

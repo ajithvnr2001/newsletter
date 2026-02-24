@@ -1,0 +1,140 @@
+{
+  "name": "D1 Click Sync Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [{ "mode": "everyDay", "hour": 5, "minute": 3 }]
+        }
+      },
+      "id": "c1",
+      "name": "05:03 Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\":\"SELECT ce.id, ce.token, ce.subscriber_id, ce.clicked_at, cl.ad_id, cl.campaign_id, cl.district FROM click_events ce JOIN click_links cl ON cl.token = ce.token WHERE ce.is_synced = 0 LIMIT 5000\"}"
+      },
+      "id": "c2",
+      "name": "Fetch Unsynced D1 Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [430, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = (((items[0].json || {}).result || [])[0] || {}).results || [];\nif (!rows.length) return [];\nconst grouped = {};\nfor (const row of rows) {\n  const key = `${row.ad_id || 0}:${row.campaign_id || 0}:${row.district || 'all'}`;\n  if (!grouped[key]) {\n    grouped[key] = {\n      ad_id: row.ad_id || null,\n      campaign_id: row.campaign_id || null,\n      district: row.district || 'all',\n      clicks: 0,\n      subscribers: new Set(),\n      ids: []\n    };\n  }\n  grouped[key].clicks += 1;\n  if (row.subscriber_id) grouped[key].subscribers.add(String(row.subscriber_id));\n  grouped[key].ids.push(Number(row.id));\n}\nreturn Object.values(grouped).map((g) => ({\n  json: {\n    ad_id: g.ad_id,\n    campaign_id: g.campaign_id,\n    district: g.district,\n    clicks: g.clicks,\n    unique_clicks: g.subscribers.size,\n    event_ids: g.ids\n  }\n}));"
+      },
+      "id": "c3",
+      "name": "Aggregate Click Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ad_performance (ad_id, campaign_id, district, date, impressions, clicks, unique_clicks) VALUES ($1,$2,$3,CURRENT_DATE,0,$4,$5) ON CONFLICT (ad_id, date, district) DO UPDATE SET clicks = ad_performance.clicks + EXCLUDED.clicks, unique_clicks = ad_performance.unique_clicks + EXCLUDED.unique_clicks",
+        "options": {
+          "queryReplacement": "={{[$json.ad_id, $json.campaign_id, $json.district, $json.clicks, $json.unique_clicks]}}"
+        }
+      },
+      "id": "c4",
+      "name": "Upsert Postgres ad_performance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [850, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Aggregate Click Metrics').all();\nconst allIds = [...new Set(src.flatMap((i) => i.json.event_ids || []))];\nif (!allIds.length) return [{ json: { updateSql: '', idCount: 0 } }];\nconst sql = `UPDATE click_events SET is_synced = 1 WHERE id IN (${allIds.join(',')})`;\nreturn [{ json: { updateSql: sql, idCount: allIds.length } }];"
+      },
+      "id": "c5",
+      "name": "Build D1 Sync Update SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 280]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\": $json.updateSql}",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "id": "c6",
+      "name": "Mark D1 Events Synced",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1270, 280]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\":\"DELETE FROM click_events WHERE clicked_at < datetime('now', '-30 day') AND is_synced = 1\"}"
+      },
+      "id": "c7",
+      "name": "Delete Old Synced Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1480, 280]
+    }
+  ],
+  "connections": {
+    "05:03 Trigger": {
+      "main": [[{ "node": "Fetch Unsynced D1 Events", "type": "main", "index": 0 }]]
+    },
+    "Fetch Unsynced D1 Events": {
+      "main": [[{ "node": "Aggregate Click Metrics", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Click Metrics": {
+      "main": [[{ "node": "Upsert Postgres ad_performance", "type": "main", "index": 0 }]]
+    },
+    "Upsert Postgres ad_performance": {
+      "main": [[{ "node": "Build D1 Sync Update SQL", "type": "main", "index": 0 }]]
+    },
+    "Build D1 Sync Update SQL": {
+      "main": [[{ "node": "Mark D1 Events Synced", "type": "main", "index": 0 }]]
+    },
+    "Mark D1 Events Synced": {
+      "main": [[{ "node": "Delete Old Synced Events", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}
