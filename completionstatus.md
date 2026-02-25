@@ -1,91 +1,63 @@
-# Namma Ooru News Implementation Completion Status
+# Namma Ooru News - Implementation Completion Status
 
-Date: 2026-02-24
+Date: 2026-02-25 (third recheck)
 
 ## Overall
-Code implementation for Phases 1-10 is completed in this repository. Remaining work is runtime setup (secrets, cloud resources, and live deployment execution).
 
-## Re-check Result
-- Re-verified after remediation pass: syntax and structure checks pass.
-- `bash -n` (shell scripts/entrypoints): pass.
-- `jq empty` (all n8n workflow JSON files): pass.
-- `python3 -m py_compile` (Scrapling API): pass.
-- `docker compose config`: not executed in this environment (`docker` CLI not installed).
-- File-presence check for all `Write ...` deliverables in `instructions.md`: pass.
-- Added full execution runbook: `executionsteps.md`.
+Repository implementation is complete for PRD v21 code deliverables, including the new 24/7 subscription architecture.
 
-## Remediations Applied In Latest Audit
-- Main pipeline workflow now fetches district articles after scraping, generates click tokens for all article/ad links, and renders newsletter HTML with tracked links and real article/ad content.
-- Main pipeline now resolves district-specific Listmonk list IDs from `district_lists` instead of hardcoding list `1`.
-- Main pipeline campaign create payload now references rendered newsletter fields from `Render Newsletter HTML` node (avoids losing `subject/body` after list-resolution SQL step).
-- Spawn worker cron corrected to `23:25 UTC` (04:55 AM IST target) in `cloudflare/workers/spawn-server/wrangler.toml`.
-- Backup delete worker auth now accepts `SELF_DELETE_WORKER_TOKEN` as fallback to avoid open endpoint drift.
-- `scripts/self_delete.sh` now supports both Hetzner metadata key formats (`instance_id` and `instance-id`).
-- Phase plan doc cron timing updated to match runtime config.
+Production execution is still pending cloud deployment and live-environment verification.
 
-## Phase-by-Phase Status
+## PRD v21 Deliverable Status
 
-1. **Phase 1 - Plan First**: ✅ Completed  
-   - Added plan artifact: `docs/PHASE1_PLAN.md`.
+1. Section 6 subscription architecture: Complete
+2. D1 `pending_subscribers` table + indexes: Complete
+3. Subscription Worker (`subscribe.nammaoorunews.com`): Complete
+4. Cloudflare Pages signup form (`/subscribe`): Complete
+5. `05:01` subscriber sync workflow: Complete
+6. Documentation refresh (`README`, `executionsteps`, review/status docs): Complete
 
-2. **Phase 2 - Infrastructure**: ✅ Completed  
-   - `docker-compose.yml` for Postgres, Listmonk, n8n, Postfix, OpenDKIM sidecar, Scrapling API.  
-   - `cloud-init/user-data.sh` installs dependencies, restores backups, imports n8n workflows from R2, starts stack, triggers pipeline, schedules delete.
-   - `cloudflare/workers/spawn-server/*` and `scripts/self_delete.sh` implemented.
+## Recheck Fixes Applied (Earlier Recheck)
 
-3. **Phase 3 - Click Tracking (24/7)**: ✅ Completed  
-   - D1 schema in `cloudflare/d1/schema.sql`.  
-   - Click redirect Worker in `cloudflare/workers/click-tracker/index.js` with `ctx.waitUntil`.  
-   - D1 sync workflow in `n8n/workflows/d1-click-sync.json`.
+1. Sync integrity hardening
+- File: `n8n/workflows/subscriber-sync.json`
+- Change: removed `ignoreResponseCode` from Listmonk subscriber API call so D1 rows are marked synced only after successful API calls.
 
-4. **Phase 4 - Database**: ✅ Completed  
-   - Core schema in `postgres/init/01-schema.sql`.  
-   - Seed data and list seeding logic in `postgres/init/02-seed.sql`.
+2. Duplicate race hardening
+- File: `cloudflare/workers/subscription-handler/index.js`
+- Change: added insert `try/catch` to convert unique-key race collisions into idempotent success response.
 
-5. **Phase 5 - Email Infrastructure**: ✅ Completed  
-   - Dynamic Postfix transport generator script implemented.  
-   - Postfix Docker image includes Postfix + OpenDKIM packages and config templates.  
-   - DNS runbook in `docs/dns-setup.md`.
+## Validation Status (Current Workspace)
 
-6. **Phase 6 - Scrapling Microservice**: ✅ Completed  
-   - FastAPI scrape endpoint with R2 image upload and resize.  
-   - NVIDIA rewriter with round-robin key usage and enforced word limits.  
-   - Dockerfile with required runtime dependencies.
+Executed and passed:
+- Workflow JSON parse via PowerShell `ConvertFrom-Json`
+- Workflow connection integrity check (`workflow-graph-ok`)
+- Workflow expression-reference integrity check (`workflow-expression-refs-ok`)
+- JavaScript syntax checks:
+  - `cloudflare/workers/subscription-handler/index.js`
+  - `cloudflare/workers/click-tracker/index.js`
+  - `cloudflare/workers/spawn-server/index.js`
+  - `cloudflare/workers/backup-delete-check/index.js`
 
-7. **Phase 7 - n8n Workflows**: ✅ Completed  
-   - Main pipeline, volume monitor, auto-IP purchase, district load balancer, backup-and-delete, telegram-alerts, and D1 sync JSON workflows.
+Not executable in this workspace:
+- `jq empty n8n/workflows/*.json` (`jq` unavailable)
+- `bash -n ...` checks (bash runtime denied)
+- `python -m py_compile ...` checks (python runtime inaccessible)
 
-8. **Phase 8 - Newsletter Template**: ✅ Completed  
-   - Responsive Tamil template in `templates/newsletter.html` with tokenized click-link pattern.
+## Deployment-Dependent Work Remaining
 
-9. **Phase 9 - IP Warmup Automation**: ✅ Completed  
-   - Warmup controller in `scripts/warmup_controller.sh`.
+- Apply D1 schema remotely.
+- Deploy/update Cloudflare workers (including subscription handler).
+- Deploy Cloudflare Pages signup UI and route `/subscribe`.
+- Import and activate `subscriber-sync` in n8n.
+- Run end-to-end signup and subscriber-sync smoke test in production-like environment.
+- Clear PTR/blacklist gates before live email sends.
 
-10. **Phase 10 - Deployment Docs**: ✅ Completed  
-    - End-to-end deployment runbook with verification/API checks in `docs/DEPLOY.md`.
+## Completion Verdict
 
-## Validation Performed
-- `bash -n` on shell scripts and entrypoints: pass.  
-- `jq empty` on all workflow JSON files: pass.  
-- `python3 -m py_compile` on Scrapling Python modules: pass.
-- `docker compose config`: could not run locally because Docker is unavailable in this workspace.
+Code completion: complete for PRD v21 scope.  
+Operational completion: pending deployment execution and runtime verification.
 
-## Runtime Prerequisites (Not Code Gaps)
-- Populate `.env` secrets.
-- Install Docker and Wrangler in deployment environment.
-- Provision Cloudflare D1/R2 and worker routes.
-- Execute deployment steps in `docs/DEPLOY.md`.
-
-## Second Audit (All Phases)
-1. **Phase 1**: ✅ code artifact present (`docs/PHASE1_PLAN.md`)
-2. **Phase 2**: ✅ infrastructure code present and patched
-3. **Phase 3**: ✅ D1 + click worker + sync workflow present
-4. **Phase 4**: ✅ schema and seed SQL present
-5. **Phase 5**: ✅ postfix/opendkim config and generator present
-6. **Phase 6**: ✅ scrapling + rewriter + docker image present
-7. **Phase 7**: ✅ 7 workflow JSON files present and JSON-valid
-8. **Phase 8**: ✅ newsletter template present
-9. **Phase 9**: ✅ warmup controller present
-10. **Phase 10**: ✅ deployment docs present (`docs/DEPLOY.md`) and detailed execution runbook present (`executionsteps.md`)
-
-Execution status remains **pending** until live environment credentials are applied and steps are run.
+Third recheck note:
+- No new functional blockers found.
+- Minor normalization applied in `n8n/workflows/subscriber-sync.json` to keep Telegram summary text ASCII-safe.

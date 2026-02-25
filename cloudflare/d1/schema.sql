@@ -28,3 +28,18 @@ CREATE TABLE IF NOT EXISTS click_events (
 CREATE INDEX IF NOT EXISTS idx_click_events_token ON click_events(token);
 CREATE INDEX IF NOT EXISTS idx_click_events_synced ON click_events(is_synced, clicked_at);
 CREATE INDEX IF NOT EXISTS idx_click_events_clicked_at ON click_events(clicked_at);
+
+CREATE TABLE IF NOT EXISTS pending_subscribers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  district TEXT NOT NULL CHECK (
+    district IN ('chennai', 'coimbatore', 'madurai', 'trichy', 'virudhunagar')
+  ),
+  name TEXT,
+  signed_up_at TEXT NOT NULL,
+  is_synced INTEGER NOT NULL DEFAULT 0 CHECK (is_synced IN (0, 1)),
+  UNIQUE(email, district)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_subs_synced ON pending_subscribers(is_synced, signed_up_at);
+CREATE INDEX IF NOT EXISTS idx_pending_subs_email ON pending_subscribers(email);

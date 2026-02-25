@@ -1,0 +1,254 @@
+{
+  "name": "Subscriber Sync Workflow",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 5,
+              "minute": 1
+            }
+          ]
+        }
+      },
+      "id": "s1",
+      "name": "05:01 Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\":\"SELECT id, email, district, name, signed_up_at FROM pending_subscribers WHERE is_synced = 0 ORDER BY signed_up_at ASC LIMIT 1000\"}"
+      },
+      "id": "s2",
+      "name": "Fetch Pending Subscribers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        430,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = (((items[0].json || {}).result || [])[0] || {}).results || [];\nif (!rows.length) return [];\nconst listMap = {\n  chennai: 1,\n  coimbatore: 2,\n  madurai: 3,\n  trichy: 4,\n  virudhunagar: 5,\n};\nreturn rows\n  .map((row) => {\n    const id = Number(row.id);\n    const email = String(row.email || '').trim().toLowerCase();\n    const district = String(row.district || '').trim().toLowerCase();\n    if (!Number.isFinite(id) || !email || !district) return null;\n    const fallbackName = email.includes('@') ? email.split('@')[0] : 'Reader';\n    return {\n      json: {\n        id,\n        email,\n        district,\n        name: String(row.name || '').trim() || fallbackName,\n        signed_up_at: row.signed_up_at || new Date().toISOString(),\n        default_list_id: listMap[district] || 1,\n      },\n    };\n  })\n  .filter(Boolean);"
+      },
+      "id": "s3",
+      "name": "Extract Pending Subscribers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT listmonk_list_id FROM district_lists WHERE district = $1), $2::int) AS list_id",
+        "options": {
+          "queryReplacement": "={{[$json.district, Number($json.default_list_id || 1)]}}"
+        }
+      },
+      "id": "s4",
+      "name": "Resolve District List",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        850,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.LISTMONK_URL || 'http://listmonk:9000'}}/api/subscribers",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"email\":$('Extract Pending Subscribers').item.json.email,\"name\":$('Extract Pending Subscribers').item.json.name,\"status\":\"enabled\",\"lists\":[Number($('Resolve District List').item.json.list_id || $('Extract Pending Subscribers').item.json.default_list_id || 1)],\"attribs\":{\"district\":$('Extract Pending Subscribers').item.json.district,\"signup_date\":$('Extract Pending Subscribers').item.json.signed_up_at}}",
+        "options": {}
+      },
+      "id": "s5",
+      "name": "Add Subscriber to Listmonk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        320
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "listmonk-http-basic",
+          "name": "Listmonk API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{$env.CLOUDFLARE_ACCOUNT_ID}}/d1/database/{{$env.CLOUDFLARE_D1_DATABASE_ID}}/query",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CLOUDFLARE_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"sql\":\"UPDATE pending_subscribers SET is_synced = 1 WHERE id = \" + Number($('Extract Pending Subscribers').item.json.id)}"
+      },
+      "id": "s6",
+      "name": "Mark Pending Subscriber Synced",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1270,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const syncedCount = items.length;\nreturn [{\n  json: {\n    syncedCount,\n    message: `Synced ${syncedCount} new subscribers to Listmonk`,\n  },\n}];"
+      },
+      "id": "s7",
+      "name": "Build Sync Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$env.TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"chat_id\":$env.TELEGRAM_CHAT_ID,\"text\":$json.message}"
+      },
+      "id": "s8",
+      "name": "Notify Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1690,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "05:01 Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pending Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pending Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Extract Pending Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Pending Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Resolve District List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve District List": {
+      "main": [
+        [
+          {
+            "node": "Add Subscriber to Listmonk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Subscriber to Listmonk": {
+      "main": [
+        [
+          {
+            "node": "Mark Pending Subscriber Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Pending Subscriber Synced": {
+      "main": [
+        [
+          {
+            "node": "Build Sync Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sync Summary": {
+      "main": [
+        [
+          {
+            "node": "Notify Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}

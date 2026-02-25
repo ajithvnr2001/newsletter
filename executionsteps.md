@@ -1,10 +1,9 @@
 # Namma Ooru News - Detailed Execution Steps
 
-Date: 2026-02-24
+Date: 2026-02-25  
+Scope: Production runbook aligned to PRD v21 (includes 24/7 subscription system).
 
-This runbook is the exact execution order to take the repository from code-complete to live operation.
-
-## 1. Preflight (Local Machine)
+## 1. Preflight (Operator Machine)
 
 Run from repository root:
 
@@ -13,17 +12,11 @@ pwd
 ls -la
 ```
 
-Install required CLIs on your operator machine:
-
-```bash
-# Ubuntu/Debian example
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin jq curl postgresql-client rclone
-
-# Node + Wrangler
-sudo apt-get install -y nodejs npm
-sudo npm install -g wrangler@latest
-```
+Install required tools:
+- Docker + Docker Compose plugin
+- Node.js + `wrangler`
+- `curl`
+- optional: `jq`, `python3`, `bash`
 
 Authenticate Cloudflare:
 
@@ -31,22 +24,11 @@ Authenticate Cloudflare:
 wrangler login
 ```
 
-## 2. Phase 0 - Deliverability Blockers (Must Do First)
+## 2. Deliverability Gate (Mandatory Before Send)
 
-1. Check blacklist:
-   - Open `https://mxtoolbox.com/blacklists.aspx`
-   - Check `95.217.13.142`
-2. If listed, delist before continuing:
-   - Spamhaus: `https://check.spamhaus.org/`
-   - Microsoft: `https://sender.office.com/`
-
-Gate: continue only after clean/delisting confirmation.
-
-## 3. Phase 1 - PTR Fix at Hetzner
-
-1. Hetzner Cloud -> Primary IPs -> `95.217.13.142` -> Edit Reverse DNS
-2. Set `mail.nammaoorunews.com`
-3. Verify:
+1. Check blacklist status for sending IP (`95.217.13.142`).
+2. Fix listings if present (Spamhaus / Microsoft SNDS).
+3. Verify PTR in Hetzner:
 
 ```bash
 dig -x 95.217.13.142 +short
@@ -58,106 +40,109 @@ Expected:
 mail.nammaoorunews.com.
 ```
 
-## 4. Phase 2 - Repository Configuration
+Do not send campaigns until this passes.
 
-Create runtime env file:
+## 3. Phase A - Cloudflare D1 + R2 Provisioning
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set all real values:
-- Hetzner tokens/IDs
-- Cloudflare account/zone/token and D1 ID
-- R2 keys and endpoint
-- Telegram bot/chat
-- NVIDIA API keys
-- n8n credentials
-
-Sanity check env values:
-
-```bash
-rg -n 'replace-me|change-me|your-org|<accountid>' .env
-```
-
-Expected: no matches.
-
-## 5. Phase 3 - Cloudflare Resources
-
-Create D1 and apply schema:
+Create D1 and apply schema (now includes `pending_subscribers`):
 
 ```bash
 wrangler d1 create namma-clicks
 wrangler d1 execute namma-clicks --file cloudflare/d1/schema.sql --remote
 ```
 
-Create R2 buckets:
+Create required R2 buckets:
 
 ```bash
 wrangler r2 bucket create namma-backups
 wrangler r2 bucket create namma-bootstrap
 ```
 
-Upload bootstrap script:
+Upload cloud-init bootstrap:
 
 ```bash
 wrangler r2 object put namma-bootstrap/cloud-init/user-data.sh --file cloud-init/user-data.sh
 ```
 
-Deploy Workers:
+## 4. Phase B - Deploy Cloudflare Workers
+
+Deploy all workers:
 
 ```bash
 (cd cloudflare/workers/click-tracker && wrangler deploy)
+(cd cloudflare/workers/subscription-handler && wrangler deploy)
 (cd cloudflare/workers/spawn-server && wrangler deploy)
 (cd cloudflare/workers/backup-delete-check && wrangler deploy)
 ```
+
+Configure routes in Cloudflare:
+- `click.nammaoorunews.com/*` -> click-tracker
+- `subscribe.nammaoorunews.com/*` -> subscription-handler
+- `spawn.nammaoorunews.com/*` -> spawn-server
+- `delete-check.nammaoorunews.com/*` -> backup-delete-check
 
 Verification:
 
 ```bash
 curl -i https://click.nammaoorunews.com/l/test-token
+curl -i https://subscribe.nammaoorunews.com
 curl -i https://spawn.nammaoorunews.com/health
 ```
 
 Expected:
-- Click test returns `410` for unknown token (valid behavior)
-- Spawn health returns `200`
+- click endpoint returns `410` for unknown token
+- subscribe endpoint `GET` returns `405` (POST-only)
+- spawn health returns `200`
 
-## 6. Phase 4 - Local Stack Validation
+## 5. Phase C - Deploy Cloudflare Pages Signup Form
 
-Bring up stack locally:
+Deploy static signup form from `cloudflare/pages/`:
+
+```bash
+wrangler pages project create nammaoorunews-pages --production-branch main
+wrangler pages deploy cloudflare/pages --project-name nammaoorunews-pages
+```
+
+Map custom domain/path so `nammaoorunews.com/subscribe` serves `cloudflare/pages/subscribe/index.html`.
+
+Browser verification:
+1. Open `https://nammaoorunews.com/subscribe`
+2. Submit sample data
+3. Confirm successful response message
+4. Confirm D1 row was inserted in `pending_subscribers`
+
+D1 verification:
+
+```bash
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${CLOUDFLARE_D1_DATABASE_ID}/query" \
+  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"sql":"SELECT id,email,district,is_synced,signed_up_at FROM pending_subscribers ORDER BY id DESC LIMIT 5"}'
+```
+
+## 6. Phase D - Runtime Stack and Workflows
+
+Bring up runtime services:
 
 ```bash
 docker compose --env-file .env up -d --build
-```
-
-Check service status:
-
-```bash
 docker compose ps
-docker compose logs --tail=80 postgres listmonk n8n postfix opendkim scrapling-api
+docker compose logs --tail=100 postgres listmonk n8n postfix opendkim scrapling-api
 ```
 
-Check DB schema loaded:
-
-```bash
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"
-```
-
-## 7. Phase 5 - n8n Workflow Import Verification
-
-Confirm workflow files exist:
+Verify workflow import includes new file:
 
 ```bash
 ls -1 n8n/workflows
 ```
 
-Expected files:
+Required workflow files include:
+- `subscriber-sync.json` (new, 05:01)
+- `d1-click-sync.json` (05:03)
 - `main-pipeline.json`
 - `volume-monitor.json`
 - `auto-ip-purchase.json`
 - `district-load-balancer.json`
-- `d1-click-sync.json`
 - `backup-and-delete.json`
 - `telegram-alerts.json`
 
@@ -167,26 +152,28 @@ If needed, import manually:
 docker compose exec -T n8n sh -lc 'for f in /workflows/*.json; do n8n import:workflow --input "$f"; done'
 ```
 
-## 8. Phase 6 - Database and API Spot Checks
+## 7. Phase E - Subscriber Sync Verification (05:01 Path)
 
-Check seeded data:
-
-```bash
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT district, list_name FROM district_lists ORDER BY district;"
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT district, position, advertiser_name FROM ads ORDER BY district, position;"
-```
-
-Check Scrapling API health:
+1. Insert a test subscriber through `https://nammaoorunews.com/subscribe`.
+2. Trigger `subscriber-sync` manually from n8n UI (or wait for cron at 05:01).
+3. Verify subscriber in Listmonk.
+4. Verify D1 row marked synced:
 
 ```bash
-curl -sS http://localhost:8000/health
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${CLOUDFLARE_D1_DATABASE_ID}/query" \
+  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"sql":"SELECT id,email,district,is_synced FROM pending_subscribers ORDER BY id DESC LIMIT 10"}'
 ```
 
-Expected: `{\"ok\":true}`
+Expected:
+- `is_synced = 1` for synced test row
+- Telegram sync notification sent
+- if Listmonk API fails, row should remain `is_synced = 0` for retry in next run
 
-## 9. Phase 7 - Manual End-to-End Trigger
+## 8. Phase F - Main Pipeline and Click Sync Verification
 
-Trigger main pipeline webhook:
+Trigger main pipeline:
 
 ```bash
 curl -X POST "${N8N_WEBHOOK_URL}/webhook/main-pipeline" \
@@ -194,86 +181,50 @@ curl -X POST "${N8N_WEBHOOK_URL}/webhook/main-pipeline" \
   -d '{"trigger":"manual-smoke"}'
 ```
 
-Confirm campaign metrics insert:
+Verify metrics:
 
-```bash
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT district,campaign_id,created_at FROM campaign_metrics ORDER BY created_at DESC LIMIT 10;"
+```sql
+SELECT district, campaign_id, created_at
+FROM campaign_metrics
+ORDER BY created_at DESC
+LIMIT 10;
 ```
 
-## 10. Phase 8 - Backup and Restore Validation
+Verify click sync (after clicks exist):
 
-Run backup:
-
-```bash
-bash scripts/backup_to_r2.sh
+```sql
+SELECT district, ad_id, date, clicks, unique_clicks
+FROM ad_performance
+ORDER BY date DESC, clicks DESC
+LIMIT 20;
 ```
 
-Verify object upload:
-
-```bash
-rclone lsf "r2:${CLOUDFLARE_R2_BUCKET}/daily/$(date +%F)"
-```
-
-Run restore dry check:
-
-```bash
-bash scripts/restore_from_r2.sh
-```
-
-## 11. Phase 9 - Warmup Execution
-
-Run warmup controller:
-
-```bash
-bash scripts/warmup_controller.sh
-```
-
-Check warmup state:
-
-```bash
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT * FROM warmup_state WHERE id=1;"
-```
-
-## 12. Phase 10 - Production Automation Verification
-
-Manual spawn worker trigger:
-
-```bash
-curl -X POST "https://spawn.nammaoorunews.com" \
-  -H "Authorization: Bearer ${SPAWN_WORKER_TOKEN}"
-```
-
-Verify Hetzner server exists:
-
-```bash
-curl -H "Authorization: Bearer ${HETZNER_API_TOKEN}" https://api.hetzner.cloud/v1/servers | jq '.servers | length'
-```
-
-Verify fallback delete worker:
-
-```bash
-curl -X POST "https://delete-check.nammaoorunews.com/force-delete" \
-  -H "Authorization: Bearer ${SELF_DELETE_WORKER_TOKEN}"
-```
-
-## 13. Final Go-Live Gate
+## 9. Final Go-Live Gate
 
 All must be true:
-1. PTR resolves correctly.
-2. IP blacklist clean.
-3. Workers deployed and reachable.
-4. D1 schema applied and writable.
-5. Local stack healthy.
-6. n8n workflows imported.
-7. Pipeline run inserts campaign metrics.
-8. R2 backup verified.
-9. Warmup state updates correctly.
-10. Spawn/delete automation works.
+1. PTR fixed and blacklist clean
+2. All four workers deployed and reachable
+3. D1 schema applied with `pending_subscribers`
+4. Cloudflare Pages `/subscribe` live
+5. Test signup inserts pending row
+6. `subscriber-sync` moves row to Listmonk and marks D1 synced
+7. Main pipeline creates campaigns and metrics
+8. Backup/delete automation verified
 
-## 14. Quick Re-Validation Commands
+## 10. Validation Commands (Codebase Integrity)
+
+Use what is available in your environment:
 
 ```bash
-bash -n scripts/*.sh cloud-init/user-data.sh docker/postfix/entrypoint.sh docker/opendkim/entrypoint.sh docker/listmonk/start.sh
-for f in n8n/workflows/*.json; do jq empty "$f"; done
-python3 -m py_compile scrapling-api/main.py scrapling-api/rewriter.py
+# Worker JS syntax
+node --check cloudflare/workers/click-tracker/index.js
+node --check cloudflare/workers/subscription-handler/index.js
+node --check cloudflare/workers/spawn-server/index.js
+node --check cloudflare/workers/backup-delete-check/index.js
+
+# Workflow JSON (Linux/macOS)
+jq empty n8n/workflows/*.json
+
+# Workflow JSON (Windows PowerShell fallback)
+powershell -Command "Get-ChildItem n8n/workflows/*.json | % { Get-Content -Raw $_ | ConvertFrom-Json > $null }; 'ok'"
 ```
