@@ -7,8 +7,8 @@ workers_dev = false
 crons = ["25 23 * * *"]
 
 [[routes]]
-pattern = "spawn.nammaoorunews.com/*"
-zone_name = "nammaoorunews.com"
+pattern = "spawn.quoteviral.online/*"
+zone_name = "quoteviral.online"
 
 [[r2_buckets]]
 binding = "BOOTSTRAP_BUCKET"

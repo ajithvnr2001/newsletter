@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-nammaoorunews.com}"
-MAIL_HOSTNAME="${MAIL_HOSTNAME:-mail.nammaoorunews.com}"
+DOMAIN="${DOMAIN:-quoteviral.online}"
+MAIL_HOSTNAME="${MAIL_HOSTNAME:-mail.quoteviral.online}"
 
 if [[ -f /etc/postfix/main.cf.template ]]; then
   export DOMAIN MAIL_HOSTNAME

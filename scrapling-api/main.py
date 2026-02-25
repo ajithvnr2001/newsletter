@@ -75,7 +75,7 @@ async def _upload_image_to_r2(image_bytes: bytes) -> str:
         CacheControl="public, max-age=31536000, immutable",
     )
 
-    base_url = os.getenv("R2_PUBLIC_BASE_URL", "https://cdn.nammaoorunews.com")
+    base_url = os.getenv("R2_PUBLIC_BASE_URL", "https://cdn.quoteviral.online")
     return f"{base_url.rstrip('/')}/{key}"
 
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 N8N_API_URL="${N8N_API_URL:-http://n8n:5678/api/v1}"
 N8N_API_KEY="${N8N_API_KEY:-}"
-DOMAIN="${DOMAIN:-nammaoorunews.com}"
+DOMAIN="${DOMAIN:-quoteviral.online}"
 MAP_JSON=""
 
 if [[ -n "$N8N_API_KEY" ]]; then

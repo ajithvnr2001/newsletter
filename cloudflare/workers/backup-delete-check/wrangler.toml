@@ -7,5 +7,5 @@ workers_dev = false
 crons = ["30 3 * * *"]
 
 [[routes]]
-pattern = "delete-check.nammaoorunews.com/*"
-zone_name = "nammaoorunews.com"
+pattern = "delete-check.quoteviral.online/*"
+zone_name = "quoteviral.online"

@@ -1,0 +1,25 @@
+# Environment files (contain secrets)
+.env
+.env.local
+
+# Wrangler local state
+.wrangler/
+**/.wrangler/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Docker volumes
+pgdata/
+n8n_data/

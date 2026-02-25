@@ -1,28 +1,31 @@
 <!doctype html>
 <html lang="ta">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Namma Ooru News</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700&display=swap');
-    </style>
-  </head>
-  <body style="margin:0;padding:0;background:#fff7ed;font-family:'Noto Sans Tamil',Arial,sans-serif;color:#1f2937;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:20px 0;background:#fff7ed;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #fed7aa;">
-            <tr>
-              <td style="background:#f97316;padding:20px 24px;color:#fff;">
-                <h1 style="margin:0;font-size:24px;line-height:1.2;">{{DISTRICT_TAMIL}} | {{DISTRICT_ENGLISH}}</h1>
-                <p style="margin:8px 0 0;font-size:14px;opacity:0.95;">{{DATE}}</p>
-              </td>
-            </tr>
 
-            <tr>
-              <td style="padding:24px 24px 4px;font-size:16px;line-height:1.6;">
-                <!-- Expected card format inside ARTICLES_BLOCK:
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Namma Ooru News</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700&display=swap');
+  </style>
+</head>
+
+<body style="margin:0;padding:0;background:#fff7ed;font-family:'Noto Sans Tamil',Arial,sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:20px 0;background:#fff7ed;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0"
+          style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #fed7aa;">
+          <tr>
+            <td style="background:#f97316;padding:20px 24px;color:#fff;">
+              <h1 style="margin:0;font-size:24px;line-height:1.2;">{{DISTRICT_TAMIL}} | {{DISTRICT_ENGLISH}}</h1>
+              <p style="margin:8px 0 0;font-size:14px;opacity:0.95;">{{DATE}}</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:24px 24px 4px;font-size:16px;line-height:1.6;">
+              <!-- Expected card format inside ARTICLES_BLOCK:
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 14px;border-bottom:1px solid #fed7aa;padding-bottom:12px;">
                   <tr>
                     <td width="90" valign="top">
@@ -31,34 +34,36 @@
                     <td valign="top" style="padding-left:10px;">
                       <p style="margin:0 0 6px;font-size:15px;font-weight:700;color:#111827;">{{AI_TITLE}}</p>
                       <p style="margin:0 0 8px;font-size:13px;color:#4b5563;line-height:1.5;">{{AI_SUMMARY}}</p>
-                      <a href="https://click.nammaoorunews.com/l/{{TOKEN}}?sid={{subscriber_id}}" style="font-size:13px;color:#ea580c;text-decoration:none;">முழு செய்தி படிக்க →</a>
+                      <a href="https://click.quoteviral.online/l/{{TOKEN}}?sid={{subscriber_id}}" style="font-size:13px;color:#ea580c;text-decoration:none;">முழு செய்தி படிக்க →</a>
                     </td>
                   </tr>
                 </table>
                 -->
-                {{ARTICLES_BLOCK}}
-              </td>
-            </tr>
+              {{ARTICLES_BLOCK}}
+            </td>
+          </tr>
 
-            <tr>
-              <td style="padding:8px 24px;">{{MID_AD}}</td>
-            </tr>
+          <tr>
+            <td style="padding:8px 24px;">{{MID_AD}}</td>
+          </tr>
 
-            <tr>
-              <td style="padding:8px 24px 24px;">{{FOOTER_AD}}</td>
-            </tr>
+          <tr>
+            <td style="padding:8px 24px 24px;">{{FOOTER_AD}}</td>
+          </tr>
 
-            <tr>
-              <td style="background:#fff1e6;padding:18px 24px;font-size:13px;color:#7c2d12;line-height:1.6;">
-                <p style="margin:0 0 6px;">You are receiving this newsletter because you subscribed to Namma Ooru News.</p>
-                <p style="margin:0;">
-                  <a href="{{unsubscribe_url}}" style="color:#9a3412;text-decoration:underline;">Unsubscribe</a>
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
+          <tr>
+            <td style="background:#fff1e6;padding:18px 24px;font-size:13px;color:#7c2d12;line-height:1.6;">
+              <p style="margin:0 0 6px;">You are receiving this newsletter because you subscribed to Namma Ooru News.
+              </p>
+              <p style="margin:0;">
+                <a href="{{unsubscribe_url}}" style="color:#9a3412;text-decoration:underline;">Unsubscribe</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+
 </html>

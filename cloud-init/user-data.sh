@@ -30,7 +30,7 @@ mkdir -p /opt/namma
 cd /opt/namma
 
 if [[ ! -d namma-ooru-news ]]; then
-  git clone "${GIT_REPO_URL:-https://github.com/your-org/namma-ooru-news.git}" namma-ooru-news
+  git clone "${GIT_REPO_URL:-https://github.com/ajithvnr2001/newsletter.git}" namma-ooru-news
 fi
 
 cd namma-ooru-news
