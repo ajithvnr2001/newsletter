@@ -1,0 +1,1805 @@
+# Product & Engineering Requirements Document (PRD) v21.0 FINAL
+
+**Project:** Namma Ooru News - Tamil Hyperlocal AI Newsletter  
+**Architecture:** Fully Ephemeral, Ultra-Low-Cost, 100% Automated Stack  
+**Target:** MVP Launch (5 Districts) → Full Tamil Nadu Coverage (38 Districts)  
+**Philosophy:** Start Simple, Scale Automatically, Hyperlocal Monetization
+
+**🚨 CRITICAL PRE-LAUNCH REQUIREMENT:** Fix PTR record before sending ANY emails (see Section 6.1)
+
+---
+
+## Executive Summary
+
+This PRD defines a **production-grade, cost-optimized, fully automated newsletter infrastructure** that starts at **€1.40/month (₹126/month)** for 5 districts and scales to **€6.71/month (₹605/month)** for all 38 Tamil Nadu districts — achieving **99%+ net margins** through hyperlocal advertising with **zero daily manual intervention**[1].
+
+### Key Innovation Pillars
+
+\begin{enumerate}
+\item \textbf{100\% Automated Scaling}: IPs auto-purchase when volume hits 2,000 sends/day, districts auto-rebalance across IPs
+\item \textbf{Progressive IP Scaling}: Start with 1 IP, system automatically adds more based on volume triggers
+\item \textbf{Ephemeral Compute}: CX33 runs 3 hours/day (05:00–08:00 AM IST), auto-deletes daily
+\item \textbf{District-Level Ad Targeting}: Each district gets separate campaigns with district-specific ads
+\item \textbf{Zero Vendor Lock-In}: Open-source stack (Listmonk, n8n, PostgreSQL, Postfix) on Hetzner + Cloudflare free tier
+\item \textbf{Self-Healing Infrastructure}: Automated error recovery, backup validation, force-delete failsafes
+\end{enumerate}
+
+### Revenue Model
+
+**At 2,500 subscribers (500/district × 5 districts):**
+- 2 ads per newsletter (mid-banner + footer)
+- ₹3,000–₹5,000 per ad per district/month
+- Monthly revenue: ₹30,000–₹50,000
+- Infrastructure cost: ₹126/month
+- Net margin: 99.6%+
+
+**At full scale (38 districts, 57,000 subscribers):**
+- Monthly revenue: ₹3,00,000–₹5,00,000
+- Infrastructure cost: ₹605/month
+- Net margin: 99.8%+
+
+### Your Daily Time Investment
+
+**During operation: ~5 minutes/day**
+- Read Telegram alerts (2 min)
+- Check ad performance dashboard (3 min)
+
+**Sales work: ~30 minutes/month**
+- Onboard new advertisers (WhatsApp/calls)
+- Review and approve ad creative
+
+**Everything else: 100% automated**
+
+---
+
+## 1. System Architecture Overview
+
+### 1.1 Infrastructure Topology
+
+┌─────────────────────────────────────────────────────────────┐
+│            CLOUDFLARE FREE TIER (€0/month)                  │
+├─────────────────────────────────────────────────────────────┤
+│ • DNS (SPF/DKIM/DMARC)                                      │
+│ • R2 Storage (10GB free: DB backups + CDN images)           │
+│ • Email Routing (bounces@/abuse@/dmarc@ forwarding)        │
+│ • Workers Cron (04:55 AM daily spawn trigger)               │
+│ • D1 Database (click_links + click_events + pending_subs)   │
+│ • Click Tracking Worker (click.nammaoorunews.com - 24/7)    │
+│ • Subscription Worker (subscribe.nammaoorunews.com - 24/7)  │
+│ • Auto-IP Purchase Worker (triggers on volume threshold)    │
+│ • Cloudflare Pages (signup form HTML - 24/7 static hosting) │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│          HETZNER EPHEMERAL (€1.40/month starting)           │
+├─────────────────────────────────────────────────────────────┤
+│ CX33 Server (3hrs/day: 05:00–08:00 AM IST)                 │
+│   ├─ n8n (pipeline orchestration + ad injection)            │
+│   │   ├─ Volume Monitor Workflow (checks daily sends)       │
+│   │   ├─ Auto-IP Purchase Workflow (Hetzner API)            │
+│   │   ├─ District Load Balancer (assigns IPs)               │
+│   │   └─ Postfix Config Generator (dynamic routing)         │
+│   ├─ PostgreSQL (subscribers + articles + ads)              │
+│   ├─ Listmonk (campaign management + click tracking)        │
+│   ├─ Postfix (SMTP delivery with dynamic IP routing)        │
+│   ├─ OpenDKIM (email authentication)                        │
+│   └─ Scrapling (AI rewriting microservice)                  │
+│                                                              │
+│ Primary IPs: Auto-scaled based on volume                    │
+│   Day 1: 95.217.13.142 (handles all districts)             │
+│   Auto-trigger at 2,000 sends/day: Buys IP2                │
+│   Auto-trigger at 4,000 sends/day: Buys IP3                │
+│   (Formula: ceil(daily_sends / 2000) = IPs needed)         │
+└─────────────────────────────────────────────────────────────┘
+
+### 1.2 Complete Day 1 Cost Breakdown
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|l|l|}
+\hline
+\textbf{Component} & \textbf{Service} & \textbf{Unit Cost} & \textbf{Quantity} & \textbf{Monthly} & \textbf{Annual} \\
+\hline
+Compute & Hetzner CX33 & €0.010/hour & 90 hrs/month & €0.90 & €10.80 \\
+Static IP & Hetzner Primary IPv4 & \$0.60/month & 1 IP & \$0.60 & \$7.20 \\
+Storage & Cloudflare R2 & €0.00 & 10GB & €0.00 & €0.00 \\
+CDN & Cloudflare R2 & €0.00 & Unlimited & €0.00 & €0.00 \\
+Email Routing & Cloudflare & €0.00 & Unlimited & €0.00 & €0.00 \\
+Orchestration & Cloudflare Workers & €0.00 & 100k req/day & €0.00 & €0.00 \\
+DNS & Cloudflare DNS & €0.00 & Unlimited & €0.00 & €0.00 \\
+\hline
+\textbf{TOTAL} & & & & \textbf{₹135} & \textbf{₹1,620} \\
+\hline
+\end{tabular}
+\caption{Day 1 infrastructure costs (domain not included; €0.90 = ₹81, \$0.60 = ₹54)}
+\end{table}
+
+**Domain cost not included** (typically ₹800–₹1,200/year for .com)
+
+### 1.3 Hardware Specifications
+
+**Hetzner CX33 (Ephemeral Instance):**
+
+\begin{itemize}
+\item \textbf{vCPU:} 4 cores (AMD EPYC, shared)
+\item \textbf{RAM:} 8 GB DDR4
+\item \textbf{Storage:} 80 GB NVMe SSD (ephemeral, wiped daily)
+\item \textbf{Network:} 20 TB traffic/month included
+\item \textbf{Location:} Helsinki (hel1) datacenter
+\item \textbf{Uptime:} 3 hours/day (05:00–08:00 AM IST)
+\item \textbf{Lifecycle:} Created 04:55 AM → Self-deleted 08:00 AM
+\item \textbf{Hourly Cost:} €0.010/hour (capped at €5.99/month if left on 24/7)
+\end{itemize}
+
+**Network Configuration:**
+
+\begin{itemize}
+\item Primary IPv4: 95.217.13.142 (static, €0.50/month, already owned)
+\item Auto-scaled IPs: System automatically purchases more as volume grows
+\item Primary IPv6: 2a01:4f9:c013:813f::/64 (free, not used for email - Gmail blocks)
+\item Hetzner private network (10.0.0.0/16) for internal container communication
+\item Firewall: Outbound SMTP (25/TCP), HTTPS (443/TCP), DNS (53/UDP) allowed; inbound SSH (22/TCP) from specific IPs only
+\end{itemize}
+
+---
+
+## 2. Automatic IP Scaling System (100% Automated)
+
+### 2.1 The Core Scaling Logic
+
+**Simple Formula:**
+
+Total daily sends across ALL districts > 2,000 → Buy new IP automatically
+IPs needed = ceil(total_daily_sends / 2000)
+
+**Why 2,000 sends/day per IP?**
+
+\begin{itemize}
+\item Gmail's safe warmup threshold: 1,500/day[2]
+\item Buffer for engagement spikes: +500 cushion
+\item Maintains good sender reputation
+\item Well below Gmail's 5,000/day bulk limit
+\end{itemize}
+
+**CRITICAL: IP Warmup Reality Check**
+
+The 2,000/day limit is your **steady-state target after 3-4 weeks of warmup**. You CANNOT start at 2,000 on Day 1 — this instantly triggers spam filters[8][9].
+
+**Realistic warmup schedule per new IP:**
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Phase} & \textbf{Days} & \textbf{Max emails/day} \\
+\hline
+1 & 1–2 & 100–200 \\
+2 & 3–4 & 300–400 \\
+3 & 5–7 & 600–800 \\
+4 & 8–10 & 1,000–1,200 \\
+5 & 11–14 & 1,500–2,000 \\
+6 & Weeks 3–4 & 2,000–3,000 \\
+7 & Month 2+ & 3,000–5,000 \\
+\hline
+\end{tabular}
+\caption{Conservative warmup schedule (assumes good engagement, low bounces)[8][9]}
+\end{table}
+
+**What this means for your launch:**
+
+\begin{itemize}
+\item \textbf{Day 1:} Start with 1 district, 100 subscribers maximum
+\item \textbf{Week 1:} Gradually add more subscribers from same district
+\item \textbf{Week 2:} Add 2nd district once IP1 stabilizes at 800–1,000/day
+\item \textbf{Week 3–4:} Scale to all 5 MVP districts as IP1 reaches 2,000/day capacity
+\end{itemize}
+
+**When adding IP2:**
+
+\begin{itemize}
+\item IP1 must be stable at 1,500–2,000/day with good metrics
+\item Start IP2 at 100–200/day (not immediately at 1,000+)
+\item Gradually shift 100–200 sends/day from IP1 to IP2 every 2–3 days[10]
+\item Keep IP1 carrying bulk until IP2 proves itself over 2 weeks
+\end{itemize}
+
+**Why gradual matters:** ISPs track sudden volume spikes. Going from 0 → 2,000 overnight = spam behavior pattern. Warming 0 → 100 → 300 → 800 → 2,000 over a month = legitimate sender pattern[9][10].
+
+### 2.2 Automatic Scaling Timeline
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{Total Daily Sends} & \textbf{IPs Active} & \textbf{Trigger} & \textbf{Monthly Cost} & \textbf{What Happens} \\
+\hline
+0–2,000 & 1 & — & ₹135 & All districts share IP1 \\
+2,001–4,000 & 2 & ✅ Auto at 2,001 & ₹189 & System buys IP2, rebalances \\
+4,001–6,000 & 3 & ✅ Auto at 4,001 & ₹243 & System buys IP3, rebalances \\
+6,001–8,000 & 4 & ✅ Auto at 6,001 & ₹297 & System buys IP4, rebalances \\
+8,001–10,000 & 5 & ✅ Auto at 8,001 & ₹351 & System buys IP5, rebalances \\
+20,001–22,000 & 11 & ✅ Auto & ₹675 & CX33→CX43 upgrade triggered \\
+100,001+ & 51 & ✅ Auto & ₹2,835 & Multi-server architecture \\
+\hline
+\end{tabular}
+\caption{Automatic IP scaling thresholds (updated costs with \$0.60/IP)}
+\end{table}
+
+**Upgrade to CX43 triggers at 20 districts** (300+ articles need more CPU):
+- CX33: €0.90/month → CX43: €1.62/month (+€0.72)
+- Total at 20 districts: €1.62 (compute) + €3.50 (7 IPs) = €5.12/month
+
+### 2.3 Complete Automation Flow (Zero Manual Intervention)
+
+Every morning at 07:48 AM (after all campaigns complete):
+
+┌─────────────────────────────────────────────────────────────┐
+│  n8n: Volume Monitor Workflow (runs automatically)         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Query PostgreSQL:                                       │
+│     SELECT SUM(sent_count) FROM campaign_metrics           │
+│     WHERE created_at::date = CURRENT_DATE                   │
+│                                                             │
+│  2. Calculate: emails_per_ip = total_sends / current_ips   │
+│                                                             │
+│  3. Decision Logic:                                         │
+│     IF emails_per_ip > 2000 AND current_ips < 10:          │
+│       → TRIGGER IP PURCHASE WORKFLOW                        │
+│     ELSE:                                                   │
+│       → Log "Healthy: X emails/IP/day" and exit            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                            ↓ (if triggered)
+┌─────────────────────────────────────────────────────────────┐
+│  n8n: Auto-IP Purchase Workflow (30 seconds)               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Call Hetzner API: Create Primary IPv4                  │
+│     POST /v1/primary_ips                                    │
+│     { type: 'ipv4', datacenter: 'hel1-dc2',                │
+│       name: 'namma-ip-2', auto_delete: false }             │
+│     Response: { ip: '95.217.13.200', id: 12345 }          │
+│                                                             │
+│  2. Set PTR Record (reverse DNS):                           │
+│     POST /v1/primary_ips/12345/actions/change_dns_ptr      │
+│     { dns_ptr: 'mail2.nammaoorunews.com', ip: '...' }     │
+│                                                             │
+│  3. Update Cloudflare SPF Record:                           │
+│     Current: "v=spf1 ip4:95.217.13.142 ~all"              │
+│     New: "v=spf1 ip4:95.217.13.142 ip4:95.217.13.200 ~all"│
+│                                                             │
+│  4. Add Cloudflare DKIM Record:                             │
+│     mail2._domainkey "v=DKIM1; k=rsa; p=..." (pre-gen)    │
+│                                                             │
+│  5. Update n8n Variable: ACTIVE_IPS                         │
+│     ['95.217.13.142', '95.217.13.200']                     │
+│                                                             │
+│  6. Update Cloudflare Worker Secret:                        │
+│     PRIMARY_IP_2_ID = 12345                                 │
+│                                                             │
+│  7. Send Telegram Alert:                                    │
+│     "🆕 New IP Auto-Purchased! IP: 95.217.13.200           │
+│      Reason: 2,047 total sends > 2,000 threshold           │
+│      New monthly cost: €1.90/month (+₹45)"                 │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  n8n: District Load Balancer (automatic rebalancing)       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Get all active IPs from ACTIVE_IPS variable            │
+│                                                             │
+│  2. Query subscriber counts per district:                   │
+│     SELECT district, COUNT(*) FROM subscribers             │
+│     GROUP BY district ORDER BY count DESC                   │
+│                                                             │
+│  3. Greedy bin-packing algorithm:                           │
+│     - Start with empty load per IP                          │
+│     - For each district (heaviest first):                   │
+│       * Assign to IP with lowest current load               │
+│       * Add district's subscriber count to that IP's load   │
+│                                                             │
+│  4. Update DISTRICT_IP_MAP variable:                        │
+│     { 'chennai': '95.217.13.142',    // 800 subs           │
+│       'coimbatore': '95.217.13.200', // 600 subs           │
+│       'madurai': '95.217.13.142',    // 400 subs           │
+│       'trichy': '95.217.13.200',     // 300 subs           │
+│       'virudhunagar': '95.217.13.200' // 200 subs }        │
+│     IP1 load: 1,200 | IP2 load: 1,100 (balanced!)         │
+│                                                             │
+│  5. This mapping used by Postfix config generator tomorrow │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+**Your involvement in this entire process: 0 minutes**
+
+### 2.4 Additional Critical Limitations
+
+#### 2.4.1 Recycled IP Blacklist Risk (Check BEFORE Sending)
+
+**🚨 HIGH PROBABILITY ISSUE:** Hetzner IPs are recycled from previous customers. Your IP `95.217.13.142` may already be on spam blacklists before you send a single email[11][12].
+
+**Check your IP NOW:**
+
+\begin{enumerate}
+\item Visit https://mxtoolbox.com/blacklists.aspx
+\item Enter: 95.217.13.142
+\item Check against 100+ blacklists (free, takes 30 seconds)[13]
+\end{enumerate}
+
+**Common Hetzner IP blacklists:**
+
+\begin{itemize}
+\item Spamhaus (most critical — Gmail uses this)
+\item Barracuda
+\item SORBS
+\item SpamCop
+\item Microsoft SNDS (separate from main blacklists)
+\end{itemize}
+
+**If blacklisted:**
+
+\begin{enumerate}
+\item \textbf{DO NOT send any emails yet}
+\item Request delisting (free for most blacklists, 24–48 hour turnaround)
+\item For Spamhaus: https://check.spamhaus.org/
+\item For Microsoft: https://sender.office.com/ (if blocked)[14]
+\item Wait for confirmation before proceeding with PTR fix and testing
+\end{enumerate}
+
+**Cost of ignoring this:** Instant hard bounces + domain reputation damage on Day 1.
+
+#### 2.4.2 Microsoft/Outlook Blacklist (Separate Issue)
+
+Hetzner Helsinki IP ranges are frequently pre-listed on Microsoft's internal blacklist[14]. Even with perfect PTR + SPF + DKIM + DMARC, Outlook/Hotmail users may get hard rejections.
+
+**Solution:** Submit Junk Mail Reporting Program (JMRP) delisting request to Microsoft after fixing PTR and warming up IP for 1–2 weeks[14].
+
+**Impact:** ~20–30% of Indian email users use Outlook/Hotmail. Budget for this deliverability gap in early months.
+
+#### 2.4.3 Why IPv4 Is Non-Negotiable (IPv6 Won't Work)
+
+**The Gmail IPv6 Block Problem:**
+
+IPv6 sender without reputation → Gmail returns:
+"550-5.7.1 Our system has detected that this message is likely unsolicited mail. This message has been blocked."[3]
+
+This is a HARD REJECTION (not spam folder - completely bounced)
+
+**Why this happens:**
+
+\begin{itemize}
+\item IPv6 address space: 340 undecillion addresses
+\item Impossible to track reputation per address
+\item Gmail's default: unknown IPv6 sender = spam = blocked[3]
+\item Even with perfect SPF/DKIM/DMARC setup
+\end{itemize}
+
+**Real-world evidence:**
+
+\begin{itemize}
+\item Self-hosted email experts report 99\% hard-block rate for new IPv6 senders
+\item Gmail's IPv6 filtering engine doesn't have established reputation systems
+\item Takes 6+ months of IPv4 reputation building before IPv6 becomes viable[3]
+\end{itemize}
+
+**Cost-benefit analysis:**
+
+IPv4 cost per IP:     $0.60/month = ₹54/month
+Revenue at risk:      ₹5,000/month per district (if Gmail blocks)
+Breaking even:        ₹54 protects ₹5,000+ revenue
+ROI of IPv4:          9,160%+
+
+Saving ₹54 to lose ₹5,000 = worst business decision possible
+
+**Verdict:** IPv4 is not a cost — it's revenue insurance. The ₹54/IP/month is the cheapest insurance you'll ever buy.
+
+#### 2.4.4 Updated Cost Model ($0.60/IP vs €0.50/IP)
+
+**Corrected monthly IP costs:**
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{IPs} & \textbf{Monthly Cost (USD)} & \textbf{Monthly Cost (INR)} \\
+\hline
+1 & \$0.60 & ₹54 \\
+2 & \$1.20 & ₹108 \\
+3 & \$1.80 & ₹162 \\
+5 & \$3.00 & ₹270 \\
+10 & \$6.00 & ₹540 \\
+20 & \$12.00 & ₹1,080 \\
+30 & \$18.00 & ₹1,620 \\
+\hline
+\end{tabular}
+\caption{Hetzner Primary IPv4 pricing (confirmed 2026)}
+\end{table}
+
+**Updated Day 1 total infrastructure cost:**
+
+\begin{itemize}
+\item Hetzner CX33 ephemeral: €0.90/month (₹81)
+\item Hetzner Primary IPv4: \$0.60/month (₹54)
+\item Cloudflare (all services): €0.00
+\item \textbf{Total Day 1: ₹135/month} (vs ₹126 previously stated)
+\end{itemize}
+
+---
+
+## 3. Complete Daily Operational Flow (100% Automated)
+
+### 3.1 Timeline (Every Morning)
+
+**04:55 AM IST** → Cloudflare Worker Cron fires
+- Creates CX33 via Hetzner API
+- Attaches Primary IP(s) based on ACTIVE_IPS
+- Injects cloud-init script
+- Sends Telegram alert: "✅ CX33 spawned"
+
+**05:00 AM** → CX33 boots, Docker services start
+- PostgreSQL restores from R2 (latest.sql.gz)
+- n8n imports workflows from R2
+- Services healthy check completes
+
+**05:01 AM** → Subscriber Sync Workflow executes
+- Fetches pending_subscribers from Cloudflare D1
+- WHERE is_synced = 0
+- FOR EACH pending subscriber:
+  - Call Listmonk API to add subscriber
+  - Assign to correct district list
+  - Status = enabled (confirmed)
+- Update D1: SET is_synced = 1
+- New subscribers now in PostgreSQL for today's campaigns
+
+**05:02 AM** → generate_postfix_config.sh executes
+- Fetches DISTRICT_IP_MAP from n8n API
+- Dynamically generates Postfix transport rules
+- Postfix reloads with correct IP routing
+
+**05:03 AM** → D1 Click Sync Workflow executes
+- Pulls yesterday's click events from Cloudflare D1
+- Inserts into PostgreSQL ad_performance table
+- Updates campaign_metrics with click counts
+- Marks D1 events as synced (is_synced = 1)
+- Cleans up old synced events (>30 days)
+
+**05:05 AM** → n8n webhook receives trigger
+- Main pipeline begins execution
+
+**05:05-07:00 AM** → FOR EACH district IN [Chennai, Coimbatore, ...]:
+
+1. **CONTENT COLLECTION:**
+   - Google News RSS query (Tamil + district name)
+   - LLM semantic deduplication
+   - FOR EACH unique article:
+     - Scrapling → scrape text + image
+     - Upload image → R2 CDN
+     - AI Rewrite (Round-Robin NVIDIA API)
+     - JSON validation
+     - INSERT INTO articles table
+
+2. **AD INJECTION:**
+   - Query ads table for active district ads
+   - Fetch ads WHERE district = 'chennai' OR district = 'all'
+   - Build ad HTML blocks (mid-banner, footer)
+   - Track impression start
+
+3. **LINK TOKEN GENERATION (Critical for 24/7 tracking):**
+   - FOR EACH ad and article link:
+     - Generate unique token (UUID)
+     - INSERT INTO Cloudflare D1 click_links table
+     - Replace original URL with Cloudflare Worker URL
+     - Format: https://click.nammaoorunews.com/l/{token}?sid={{subscriber_id}}
+   - All links now point to 24/7 Cloudflare infrastructure
+
+4. **CAMPAIGN GENERATION:**
+   - Query today's articles for district
+   - Inject articles into HTML template (with tracking URLs)
+   - Inject district-specific ads into template (with tracking URLs)
+   - Listmonk API: Create campaign (status=draft)
+
+**06:30 AM** → n8n: Change Chennai campaign → status=running
+- Listmonk begins sending (via Postfix)
+- Emails route to correct IP based on sender_transport
+- Ad impressions logged to campaign_metrics
+
+**06:45 AM** → Coimbatore campaign starts  
+**07:00 AM** → Madurai campaign starts  
+**07:15 AM** → Trichy campaign starts  
+**07:30 AM** → Virudhunagar campaign starts
+
+**07:45 AM** → All campaigns complete
+- n8n records metrics to campaign_metrics table
+- Ad performance data extracted from Listmonk
+
+**07:48 AM** → AUTOMATIC SCALING CHECK:
+- Volume Monitor Workflow executes
+- IF total_sends > 2000 per IP:
+  - Trigger IP Purchase Workflow
+  - Purchase new Primary IP from Hetzner
+  - Update DNS records in Cloudflare
+  - Rebalance districts across IPs
+  - Send Telegram: "New IP auto-purchased"
+- ELSE:
+  - Log: "Healthy: X emails/IP, no action needed"
+
+**07:50 AM** → Backup script executes:
+- pg_dump listmonk → /tmp/namma_db_2026-02-24.sql.gz
+- Upload to R2 (with 3x retry)
+- Export n8n workflows → R2
+- Export campaign_metrics CSV → R2
+- Export ad_performance CSV → R2
+- DELETE articles older than 30 days
+
+**07:55 AM** → Pre-delete validation:
+- Verify R2 upload successful
+- If failed: Abort delete, alert Telegram
+- If success: Proceed to delete
+
+**08:00 AM** → Self-delete:
+- Get instance ID from metadata API
+- Call Hetzner DELETE /v1/servers/{id}
+- Send Telegram: "✅ Self-delete complete"
+
+**09:00 AM** → Cloudflare Worker backup delete check:
+- Query Hetzner API for server existence
+- If still alive: Force delete, alert warning
+- If deleted: No action (self-delete worked)
+
+### 3.2 What You Actually Do Each Day
+
+Your morning routine:
+
+**07:50 AM** → Receive Telegram: "✅ All campaigns sent successfully"
+- (Read notification: 10 seconds)
+
+**07:51 AM** → Open phone, check alert details
+- (Optional: 30 seconds)
+
+**08:05 AM** → Check Listmonk dashboard (if curious)
+- (Optional: 2 minutes)
+
+**TOTAL TIME: ~30 seconds to 3 minutes**  
+**REQUIRED ACTION: None (just awareness)**
+
+**Everything else runs itself.**
+
+---
+
+## 4. Database Schema & Data Management
+
+### 4.1 PostgreSQL Tables
+
+**Database:** listmonk (shared by Listmonk + custom tables)
+
+**NOTE:** Subscribers are managed entirely through Listmonk's built-in subscribers table. No custom subscriber table needed — Listmonk handles email, name, status, list assignments, and metadata.
+
+**Custom Table: articles**
+
+CREATE TABLE articles (
+    id SERIAL PRIMARY KEY,
+    source_url TEXT UNIQUE NOT NULL,
+    publisher_name VARCHAR(100) NOT NULL,
+    cdn_image_url TEXT,
+    raw_title TEXT NOT NULL,
+    ai_summary TEXT NOT NULL,
+    ai_title TEXT NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    location VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT articles_location_check CHECK (location IN (
+        'chennai', 'coimbatore', 'madurai', 'trichy', 'virudhunagar'
+    ))
+);
+
+CREATE INDEX idx_articles_location_date ON articles(location, created_at DESC);
+CREATE INDEX idx_articles_created_at ON articles(created_at DESC);
+CREATE INDEX idx_articles_category ON articles(category);
+CREATE INDEX idx_articles_source_url ON articles USING hash(source_url);
+
+**Custom Table: ads (Hyperlocal Ad Management)**
+
+CREATE TABLE ads (
+    id SERIAL PRIMARY KEY,
+    advertiser_name VARCHAR(100) NOT NULL,
+    advertiser_email VARCHAR(255),
+    advertiser_phone VARCHAR(20),
+    
+    district VARCHAR(50) NOT NULL,
+    position VARCHAR(20) NOT NULL,
+    
+    html_content TEXT NOT NULL,
+    tracking_url TEXT NOT NULL,
+    image_url TEXT,
+    
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    priority INTEGER DEFAULT 1,
+    price_paid NUMERIC(10,2),
+    currency VARCHAR(3) DEFAULT 'INR',
+    
+    impressions_total INTEGER DEFAULT 0,
+    clicks_total INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT ads_district_check CHECK (
+        district IN ('all', 'chennai', 'coimbatore', 'madurai', 
+                     'trichy', 'virudhunagar')
+    ),
+    CONSTRAINT ads_position_check CHECK (
+        position IN ('header', 'mid', 'footer', 'inline')
+    )
+);
+
+CREATE INDEX idx_ads_district_active ON ads(district, is_active, start_date, end_date);
+CREATE INDEX idx_ads_position ON ads(position);
+CREATE INDEX idx_ads_priority ON ads(priority DESC);
+
+**Custom Table: ad_performance (Daily Analytics)**
+
+CREATE TABLE ad_performance (
+    id SERIAL PRIMARY KEY,
+    ad_id INTEGER REFERENCES ads(id) ON DELETE CASCADE,
+    campaign_id INTEGER,
+    district VARCHAR(50) NOT NULL,
+    
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    impressions INTEGER DEFAULT 0,
+    clicks INTEGER DEFAULT 0,
+    unique_clicks INTEGER DEFAULT 0,
+    ctr NUMERIC(5,2) GENERATED ALWAYS AS (
+        CASE WHEN impressions > 0 
+        THEN ROUND((clicks::NUMERIC / impressions * 100), 2)
+        ELSE 0 END
+    ) STORED,
+    
+    revenue_earned NUMERIC(10,2),
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT ad_performance_unique UNIQUE (ad_id, date, district)
+);
+
+CREATE INDEX idx_ad_performance_date ON ad_performance(date DESC);
+CREATE INDEX idx_ad_performance_ad_id ON ad_performance(ad_id, date DESC);
+CREATE INDEX idx_ad_performance_district ON ad_performance(district, date DESC);
+
+**Custom Table: campaign_metrics**
+
+CREATE TABLE campaign_metrics (
+    id SERIAL PRIMARY KEY,
+    campaign_id INTEGER NOT NULL,
+    district VARCHAR(50) NOT NULL,
+    sending_ip INET NOT NULL,
+    
+    sent_count INTEGER DEFAULT 0,
+    delivered_count INTEGER DEFAULT 0,
+    bounced_count INTEGER DEFAULT 0,
+    opened_count INTEGER DEFAULT 0,
+    clicked_count INTEGER DEFAULT 0,
+    spam_complaint_count INTEGER DEFAULT 0,
+    
+    send_started_at TIMESTAMP WITH TIME ZONE,
+    send_completed_at TIMESTAMP WITH TIME ZONE,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_campaign_metrics_district ON campaign_metrics(district, created_at DESC);
+CREATE INDEX idx_campaign_metrics_campaign_id ON campaign_metrics(campaign_id);
+CREATE INDEX idx_campaign_metrics_date ON campaign_metrics(created_at DESC);
+
+**Custom Table: ip_scaling_history (Track Automatic IP Purchases)**
+
+CREATE TABLE ip_scaling_history (
+    id SERIAL PRIMARY KEY,
+    ip_address INET NOT NULL,
+    ip_id INTEGER NOT NULL,
+    
+    trigger_reason VARCHAR(255) NOT NULL,
+    daily_sends_at_trigger INTEGER NOT NULL,
+    ips_before INTEGER NOT NULL,
+    ips_after INTEGER NOT NULL,
+    
+    monthly_cost_before NUMERIC(10,2),
+    monthly_cost_after NUMERIC(10,2),
+    
+    ptr_record VARCHAR(255),
+    spf_record_updated TEXT,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ip_scaling_date ON ip_scaling_history(created_at DESC);
+
+**Listmonk Tables (Auto-Created):**
+
+\begin{itemize}
+\item subscribers — User email, name, status (confirmed/unsubscribed/bounced)
+\item lists — District lists (Chennai, Coimbatore, etc.)
+\item campaigns — Daily email campaigns
+\item campaign\_views — Open tracking
+\item link\_clicks — Click tracking (used for ad analytics)
+\end{itemize}
+
+### 4.2 Sample Ad Data (Seeding)
+
+-- Example ads for Virudhunagar
+INSERT INTO ads (
+    advertiser_name, district, position, html_content, 
+    tracking_url, start_date, end_date, priority, price_paid
+) VALUES 
+(
+    'VND Silk Sarees',
+    'virudhunagar',
+    'mid',
+    '<table width="100%" style="background:#fff7ed;border:2px solid #f97316;border-radius:8px;padding:16px;margin:20px 0;">
+      <tr><td>
+        <p style="font-size:11px;color:#f97316;margin:0;text-transform:uppercase;">விளம்பரம் (Sponsored)</p>
+        <p style="font-size:16px;font-weight:bold;color:#1a1a1a;margin:8px 0;">விருதுநகர் சிறந்த பட்டு புடவைகள்</p>
+        <p style="font-size:14px;color:#444;">VND Silk Sarees - தீபாவளி சிறப்பு 40% தள்ளுபடி</p>
+        <a href="https://click.nammaoorunews.com/ad/vnd-silk-123" style="background:#f97316;color:#fff;padding:8px 16px;border-radius:4px;text-decoration:none;font-size:14px;">இப்போதே பார்வையிடுங்கள் →</a>
+      </td></tr>
+    </table>',
+    'https://vndsilksarees.com/diwali-sale',
+    '2026-03-01',
+    '2026-03-31',
+    10,
+    5000.00
+);
+
+---
+
+## 5. Hyperlocal Ad System Architecture
+
+### 5.1 District-Level Ad Targeting Flow
+
+┌───────────────────────────────────────────────────────────┐
+│  n8n: Campaign Generation (runs per district)            │
+├───────────────────────────────────────────────────────────┤
+│                                                           │
+│  district = 'virudhunagar'                                │
+│       ↓                                                   │
+│  Query ads table:                                         │
+│    WHERE (district = 'virudhunagar' OR district = 'all') │
+│      AND is_active = TRUE                                 │
+│      AND start_date <= CURRENT_DATE                       │
+│      AND end_date >= CURRENT_DATE                         │
+│    ORDER BY district DESC, priority DESC                  │
+│       ↓                                                   │
+│  Results:                                                 │
+│    [1] VND Silk Sarees (district='virudhunagar', pri=10) │
+│    [2] Jio TN Offer (district='all', pri=5)              │
+│       ↓                                                   │
+│  Inject into HTML template:                               │
+│    {{MID_AD}} = VND Silk Sarees HTML                      │
+│    {{FOOTER_AD}} = Jio TN Offer HTML                      │
+│       ↓                                                   │
+│  Generate final HTML → Listmonk campaign                  │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+
+### 5.2 Ad Click Tracking Architecture (24/7 Cloudflare System)
+
+**CRITICAL DESIGN:** Click tracking MUST work 24/7, even after VM deletion at 08:00 AM. Users click links throughout the day, not just in the morning.
+
+**The Problem Without This Fix:**
+
+\begin{itemize}
+\item Email sent at 06:30 AM ✅
+\item VM self-deletes at 08:00 AM ✅
+\item User opens email at 11:00 AM ✅
+\item User clicks ad link at 11:01 AM ❌
+\item click.nammaoorunews.com/l/abc123 → points to dead Listmonk ❌
+\item Result: 404 Error, lost click, angry advertiser ❌
+\end{itemize}
+
+**The Solution: Cloudflare Worker + D1 as Permanent Click Handler**
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Component} & \textbf{Uptime} \\
+\hline
+VM (Listmonk inside) & 3 hours/day (05:00-08:00 AM) \\
+Cloudflare Worker & 24/7/365 (free tier, always available) \\
+Cloudflare D1 & 24/7/365 (permanent database) \\
+\hline
+\end{tabular}
+\end{table}
+
+#### 5.2.1 Cloudflare D1 Database Schema (Permanent Storage)
+
+**Lives in Cloudflare D1 (NOT in VM PostgreSQL) - persists 24/7:**
+
+-- Table 1: Link Token Mapping
+CREATE TABLE click_links (
+    token TEXT PRIMARY KEY,
+    campaign_id INTEGER NOT NULL,
+    ad_id INTEGER,
+    district TEXT NOT NULL,
+    destination_url TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_click_links_token ON click_links(token);
+CREATE INDEX idx_click_links_campaign ON click_links(campaign_id);
+
+-- Table 2: Click Event Log
+CREATE TABLE click_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL,
+    subscriber_id TEXT,
+    clicked_at TEXT NOT NULL,
+    user_agent TEXT,
+    ip_address TEXT,
+    is_synced INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_click_events_token ON click_events(token);
+CREATE INDEX idx_click_events_synced ON click_events(is_synced, clicked_at);
+
+-- Table 3: Pending Subscribers (24/7 Signup Buffer)
+CREATE TABLE pending_subscribers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    district TEXT NOT NULL,
+    name TEXT,
+    signed_up_at TEXT NOT NULL,
+    is_synced INTEGER DEFAULT 0,
+    UNIQUE(email, district)
+);
+
+CREATE INDEX idx_pending_subs_synced ON pending_subscribers(is_synced, signed_up_at);
+CREATE INDEX idx_pending_subs_email ON pending_subscribers(email);
+
+**D1 Free Tier Limits:**
+
+\begin{itemize}
+\item Storage: 5GB (holds millions of clicks + pending subscribers)
+\item Reads: 5M rows/day (handles 100k+ clicks/day + subscription checks)
+\item Writes: 100k rows/day (clicks + signups combined)
+\item Cost if exceeded: \$0.001 per 1k writes (₹0.09 per 1k operations)
+\end{itemize}
+
+**Realistic Usage at Scale (38 districts, 57k subscribers):**
+
+\begin{itemize}
+\item Daily clicks: ~10,000 writes/day (57k subs × 20\% CTR × 2 links avg)
+\item Daily signups: ~50 writes/day (organic growth)
+\item Daily sync reads: ~100 reads/day (morning sync operations)
+\item \textbf{Total: ~10,150 operations/day} — well within 100k free tier
+\end{itemize}
+
+#### 5.2.2 Cloudflare Worker Implementation (24/7 Click Handler)
+
+**Deployed to:** click.nammaoorunews.com  
+**Runs:** 24/7/365 on Cloudflare edge network (free tier: 100k requests/day)
+
+// click-tracker-worker.js
+// This worker NEVER goes offline (unlike VM which deletes at 08:00 AM)
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    
+    const pathMatch = url.pathname.match(/^\/l\/([^/]+)$/);
+    if (!pathMatch) {
+      return new Response('Invalid link format', { status: 404 });
+    }
+    
+    const token = pathMatch[1];
+    
+    const link = await env.DB.prepare(`
+      SELECT destination_url, campaign_id, ad_id, district 
+      FROM click_links 
+      WHERE token = ?
+    `).bind(token).first();
+
+    if (!link) {
+      return new Response('Link expired or invalid', { status: 410 });
+    }
+
+    const subscriberId = url.searchParams.get('sid') || null;
+    
+    await env.DB.prepare(`
+      INSERT INTO click_events (
+        token, subscriber_id, clicked_at, user_agent, ip_address
+      ) VALUES (?, ?, ?, ?, ?)
+    `).bind(
+      token,
+      subscriberId,
+      new Date().toISOString(),
+      request.headers.get('user-agent') || '',
+      request.headers.get('cf-connecting-ip') || ''
+    ).run();
+
+    return Response.redirect(link.destination_url, 302);
+  }
+}
+
+---
+
+## 6. 24/7 Subscription System (Zero Downtime Signups)
+
+### 6.1 The Architecture Problem
+
+**The Challenge:** VM only runs 05:00–08:00 AM IST, but users want to subscribe 24/7.
+
+**Wrong Solution:** Keep VM running 24/7 just for signups → Wastes €4.09/month (€5.99 total - €0.90 ephemeral)
+
+**Right Solution:** Cloudflare as 24/7 subscription gateway → €0.00 cost
+
+### 6.2 Complete User Signup Flow
+
+3:00 PM → User visits nammaoorunews.com/subscribe
+          ↓
+          Cloudflare Pages (free, 24/7 static hosting)
+          Form: [District Dropdown] [Email Input] [Submit]
+          ↓
+          POST to subscribe.nammaoorunews.com
+          ↓
+          Cloudflare Worker (24/7, free tier: 100k req/day)
+          - Validates email format
+          - Checks for duplicate in D1
+          - Inserts into pending_subscribers table
+          ↓
+          Response: "Welcome! Your first newsletter arrives tomorrow at 6:30 AM"
+          ↓
+          D1 pending_subscribers:
+          { email: "user@gmail.com", district: "chennai", 
+            signed_up_at: "2026-02-25T15:00:00Z", is_synced: 0 }
+
+Next Day 05:01 AM → n8n Subscriber Sync Workflow executes
+                    Fetches from D1: WHERE is_synced = 0
+                    ↓
+                    FOR EACH pending subscriber:
+                      POST /api/subscribers to Listmonk
+                      { email, name, status: "enabled", 
+                        lists: [district_list_id] }
+                    ↓
+                    UPDATE D1: SET is_synced = 1
+                    ↓
+                    Subscriber now in PostgreSQL
+
+06:30 AM → Chennai campaign sends
+           User receives FIRST newsletter (includes welcome message)
+
+### 6.3 Cloudflare Worker: Subscription Handler
+
+**Deployed to:** subscribe.nammaoorunews.com  
+**Runtime:** 24/7 on Cloudflare edge network
+
+// subscribe-worker.js
+export default {
+  async fetch(request, env) {
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    const body = await request.json();
+    const { email, district, name } = body;
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid email format' }), 
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate district
+    const validDistricts = ['chennai', 'coimbatore', 'madurai', 'trichy', 'virudhunagar'];
+    if (!validDistricts.includes(district)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid district' }), 
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Check for duplicate
+    const existing = await env.DB.prepare(`
+      SELECT id FROM pending_subscribers 
+      WHERE email = ? AND district = ?
+    `).bind(email, district).first();
+
+    if (existing) {
+      return new Response(
+        JSON.stringify({ 
+          message: 'You are already subscribed to this district newsletter!' 
+        }), 
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Insert into D1
+    await env.DB.prepare(`
+      INSERT INTO pending_subscribers (email, district, name, signed_up_at, is_synced)
+      VALUES (?, ?, ?, ?, 0)
+    `).bind(
+      email,
+      district,
+      name || email.split('@')[0],
+      new Date().toISOString()
+    ).run();
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        message: `Welcome to Namma Ooru News - ${district}! Your first newsletter arrives tomorrow at 6:30 AM.`
+      }), 
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+};
+
+### 6.4 Signup Form (Cloudflare Pages)
+
+**Deployed to:** nammaoorunews.com/subscribe  
+**Hosting:** Cloudflare Pages (free, unlimited bandwidth, 24/7)
+
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscribe - Namma Ooru News</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 450px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗞️ Namma Ooru News</h1>
+        <p>உங்கள் ஊர் செய்திகள், தமிழில், தினமும் காலை 6:30 மணிக்கு</p>
+        
+        <form id="subscribeForm">
+            <label for="district">உங்கள் மாவட்டம் (Your District)</label>
+            <select id="district" name="district" required>
+                <option value="">-- தேர்ந்தெடுக்கவும் --</option>
+                <option value="chennai">Chennai - சென்னை</option>
+                <option value="coimbatore">Coimbatore - கோயம்புத்தூர்</option>
+                <option value="madurai">Madurai - மதுரை</option>
+                <option value="trichy">Trichy - திருச்சி</option>
+                <option value="virudhunagar">Virudhunagar - விருதுநகர்</option>
+            </select>
+
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" 
+                   placeholder="your.email@example.com" required>
+
+            <label for="name">பெயர் (Name) - விருப்பம் (Optional)</label>
+            <input type="text" id="name" name="name" 
+                   placeholder="Your name">
+
+            <button type="submit" id="submitBtn">
+                Subscribe Now - சந்தா செலுத்துங்கள்
+            </button>
+        </form>
+
+        <div id="message" class="message"></div>
+    </div>
+
+    <script>
+        document.getElementById('subscribeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const btn = document.getElementById('submitBtn');
+            const msg = document.getElementById('message');
+            
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            msg.style.display = 'none';
+
+            const formData = {
+                email: document.getElementById('email').value,
+                district: document.getElementById('district').value,
+                name: document.getElementById('name').value
+            };
+
+            try {
+                const response = await fetch('https://subscribe.nammaoorunews.com', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    msg.className = 'message success';
+                    msg.textContent = data.message;
+                    msg.style.display = 'block';
+                    document.getElementById('subscribeForm').reset();
+                } else {
+                    throw new Error(data.error || 'Subscription failed');
+                }
+            } catch (error) {
+                msg.className = 'message error';
+                msg.textContent = 'Error: ' + error.message;
+                msg.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Subscribe Now - சந்தா செலுத்துங்கள்';
+            }
+        });
+    </script>
+</body>
+</html>
+
+### 6.5 n8n Subscriber Sync Workflow
+
+**Runs:** Daily at 05:01 AM (right after VM boot, before campaigns)
+
+**Workflow Steps:**
+
+1. **Fetch Pending Subscribers from D1**
+   - HTTP Request to Cloudflare D1 API
+   - Query: `SELECT * FROM pending_subscribers WHERE is_synced = 0`
+
+2. **For Each Pending Subscriber (Loop Node)**
+   - Extract: email, district, name
+   - Map district to Listmonk list_id (Chennai=1, Coimbatore=2, etc.)
+
+3. **Add to Listmonk**
+   - HTTP POST to http://localhost:9000/api/subscribers
+   - Headers: `Authorization: Basic base64(username:password)`
+   - Body:
+     {
+       "email": "{{email}}",
+       "name": "{{name}}",
+       "status": "enabled",
+       "lists": [{{list_id}}],
+       "attribs": {
+         "district": "{{district}}",
+         "signup_date": "{{signed_up_at}}"
+       }
+     }
+
+4. **Mark as Synced in D1**
+   - HTTP Request to Cloudflare D1 API
+   - Query: `UPDATE pending_subscribers SET is_synced = 1 WHERE id = {{id}}`
+
+5. **Send Telegram Notification**
+   - Message: "✅ Synced {{count}} new subscribers to Listmonk"
+
+### 6.6 Cost Analysis: 24/7 Signups
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Approach} & \textbf{Monthly Cost} & \textbf{Complexity} \\
+\hline
+Keep VM running 24/7 & €5.99 (₹540) & Simple but wasteful \\
+Cloudflare D1 buffer & €0.00 & One Worker + one table \\
+\hline
+\end{tabular}
+\caption{Subscription architecture cost comparison}
+\end{table}
+
+**At 1,000 signups/month:**
+- D1 writes: 1,000 (free tier: 100k/day)
+- Worker requests: 1,000 (free tier: 100k/day)
+- Pages hosting: unlimited (free)
+- **Total cost: ₹0**
+
+**Savings vs 24/7 VM:** ₹540/month = ₹6,480/year
+
+---
+
+## 7. Email Infrastructure & Deliverability
+
+### 6.1 Critical PTR Record Configuration (MUST FIX BEFORE SENDING)
+
+**🚨 STOP: DO NOT SEND ANY EMAILS UNTIL THIS IS FIXED**
+
+Your current Hetzner Primary IP has a **show-stopping deliverability issue**[4]:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Component} & \textbf{Current Status} & \textbf{Impact} \\
+\hline
+IP Address & 95.217.13.142 & ✅ Correct \\
+PTR Record & static.142.13.217.95.clients.your-server.de & ❌ BREAKS EVERYTHING \\
+Required PTR & mail.nammaoorunews.com & Must fix immediately \\
+\hline
+\end{tabular}
+\end{table}
+
+**Why Your Current PTR Guarantees 100% Spam Delivery:**
+
+\begin{enumerate}
+\item \textbf{Generic Hetzner Hostname:} clients.your-server.de is a shared hosting indicator[4]
+\item \textbf{Gmail's Instant Block:} Generic PTRs = known spam source = hard rejection (not spam folder - complete bounce)[5]
+\item \textbf{Yahoo/Outlook/Hotmail:} Same aggressive filtering - auto-reject generic PTRs[5]
+\item \textbf{Perfect SPF/DKIM/DMARC Won't Help:} Email authentication only works AFTER PTR passes[6]
+\end{enumerate}
+
+**Real-World Impact:**
+
+Day 1 Test Email:
+  → Gmail: "550-5.7.1 likely unsolicited mail" (rejected)
+  → Yahoo: Silently dropped (never reaches inbox)
+  → Outlook: "Rejected due to sender reputation"
+
+Week 1:
+  → Domain nammaoorunews.com flagged as spam source
+  → Reputation score: -10 (permanent damage)
+
+Month 1:
+  → Domain blacklisted across major ESPs
+  → Requires 6+ months to rebuild reputation
+
+**The 30-Second Fix (Do This NOW):**
+
+**Step 1:** Go to Hetzner Cloud Console → Primary IPs tab (where your screenshot is from)[7]
+
+**Step 2:** Click the `···` (three dots) menu next to `95.217.13.142`[7]
+
+**Step 3:** Select "Edit Reverse DNS"[7]
+
+**Step 4:** In the form that appears:
+
+\begin{itemize}
+\item \textbf{IP Address:} 95.217.13.142 (pre-filled)
+\item \textbf{Reverse DNS:} mail.nammaoorunews.com (type this exactly)
+\item Click "Save"
+\end{itemize}
+
+**Step 5:** Wait 5 minutes for DNS propagation[6]
+
+**Step 6:** Verify the fix worked:
+
+# Run this command (should return mail.nammaoorunews.com)
+dig -x 95.217.13.142 +short
+
+# Expected output:
+mail.nammaoorunews.com.
+
+# If you still see clients.your-server.de, wait another 5 minutes
+
+**Visual Verification in Hetzner Console:**
+
+After the fix, your Primary IPs table should show:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Column} & \textbf{Value After Fix} \\
+\hline
+IP address & 95.217.13.142 \\
+Reverse DNS & mail.nammaoorunews.com \\
+Server & Unassigned (this is correct for ephemeral) \\
+Location & Helsinki \\
+\hline
+\end{tabular}
+\end{table}
+
+**Why "Unassigned" Server is Correct:**
+
+Your screenshot shows both IPs as "Unassigned" - this is **expected and correct** for ephemeral architecture:
+
+\begin{itemize}
+\item Primary IPs are "floating" resources
+\item They get \textbf{attached dynamically} during CX33 spawn (05:00 AM daily)
+\item They \textbf{detach automatically} when CX33 self-deletes (08:00 AM)
+\item Billing continues at €0.50/month even when unassigned
+\item This is cheaper than keeping server running 24/7
+\end{itemize}
+
+**Cost-Benefit Analysis:**
+
+Cost to fix PTR:           €0 (free, takes 30 seconds)
+Revenue protected:         ₹30,000+/month (prevents spam delivery)
+Time to fix:              30 seconds
+Time to recover if broken: 6+ months
+
+This is the highest-ROI action in the entire project.
+
+**Checklist Before Sending First Email:**
+
+\begin{itemize}
+\item[$\square$] PTR record changed to mail.nammaoorunews.com in Hetzner
+\item[$\square$] Waited 5 minutes for propagation
+\item[$\square$] Verified with dig -x 95.217.13.142 command
+\item[$\square$] Hetzner console shows correct Reverse DNS
+\item[$\square$] Only then proceed to test email sending
+\end{itemize}
+
+**What Happens If You Skip This:**
+
+\begin{itemize}
+\item First test email to Gmail: \textbf{Rejected} (hard bounce)
+\item Domain reputation: \textbf{Destroyed} on Day 1
+\item Recovery time: \textbf{6+ months} of consistent good sending
+\item Business impact: \textbf{Cannot launch} until reputation rebuilt
+\end{itemize}
+
+**This single 30-second action is the difference between:**
+
+\begin{itemize}
+\item ✅ 98\% inbox delivery rate
+\item ❌ 0\% inbox delivery rate
+\end{itemize}
+
+**Do not skip this. Fix it now before proceeding with any other setup.**
+
+### 6.2 DNS Configuration (Cloudflare) - Auto-Updated
+
+**SPF Record (Automatically Updated by n8n):**
+
+# Day 1 (manual setup - AFTER fixing PTR)
+TXT @ "v=spf1 ip4:95.217.13.142 ~all"
+
+# After auto-scaling triggers (n8n updates automatically)
+TXT @ "v=spf1 ip4:95.217.13.142 ip4:95.217.13.200 ip4:95.217.13.201 ~all"
+
+**DKIM Records (Pre-Generated, Auto-Added):**
+
+# Day 1
+TXT mail._domainkey "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC..."
+
+# After auto-scaling (n8n adds automatically)
+TXT mail2._domainkey "v=DKIM1; k=rsa; p=MIGfMA0GCSq..."
+TXT mail3._domainkey "v=DKIM1; k=rsa; p=MIGfMA0GCSq..."
+
+**DMARC Record (Progressive Strictness):**
+
+# Week 1-2: Monitor only
+TXT _dmarc "v=DMARC1; p=none; rua=mailto:dmarc@nammaoorunews.com; pct=100; adkim=r; aspf=r"
+
+# Week 3-4: Quarantine failures
+TXT _dmarc "v=DMARC1; p=quarantine; rua=mailto:dmarc@nammaoorunews.com; pct=100; adkim=s; aspf=s"
+
+# Week 5+: Reject unauthenticated
+TXT _dmarc "v=DMARC1; p=reject; rua=mailto:dmarc@nammaoorunews.com; pct=100; adkim=s; aspf=s"
+
+**PTR Records (MUST BE SET MANUALLY FIRST, THEN AUTO-SET BY n8n):**
+
+# Day 1: Set manually in Hetzner Cloud Console (CRITICAL)
+95.217.13.142 → mail.nammaoorunews.com
+
+# Future IPs: Auto-set by n8n via Hetzner API
+95.217.13.200 → mail2.nammaoorunews.com  (Auto-added by system)
+95.217.13.201 → mail3.nammaoorunews.com  (Auto-added by system)
+
+---
+
+## 7. Monetization Strategy & Advertiser Onboarding
+
+### 7.1 Pricing Tiers (Per District)
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{Tier} & \textbf{Placement} & \textbf{Rate/District} & \textbf{State-Wide} & \textbf{Avg CTR} \\
+\hline
+Premium & Header banner & ₹8,000–₹15,000 & ₹50,000–₹1,00,000 & 12–18\% \\
+Standard & Mid-banner & ₹3,000–₹8,000 & ₹25,000–₹50,000 & 15–25\% \\
+Basic & Footer & ₹1,000–₹3,000 & ₹10,000–₹20,000 & 5–10\% \\
+Inline & Between articles & ₹2,000–₹5,000 & ₹15,000–₹30,000 & 10–15\% \\
+\hline
+\end{tabular}
+\caption{Ad pricing tiers per month}
+\end{table}
+
+**Package Deals:**
+
+\begin{itemize}
+\item 2 positions (mid + footer): 20\% discount
+\item 3 months commitment: 15\% discount
+\item 6 months commitment: 25\% discount
+\end{itemize}
+
+### 7.2 Revenue Projections
+
+**Phase 1: MVP (5 Districts, 2,500 Subscribers)**
+
+Per District:
+  - 500 subscribers
+  - 2 ads (mid + footer)
+  - ₹4,000 + ₹1,500 = ₹5,500/district/month
+
+Total Revenue: ₹5,500 × 5 = ₹27,500/month
+Infrastructure Cost: ₹126/month
+Net Profit: ₹27,374/month (99.5% margin)
+
+**Phase 2: Growth (10 Districts, 10,000 Subscribers)**
+
+Total Revenue: ₹5,500 × 10 = ₹55,000/month
+Infrastructure Cost: ₹216/month (2 IPs auto-purchased)
+Net Profit: ₹54,784/month (99.6% margin)
+
+**Phase 3: Full Scale (38 Districts, 57,000 Subscribers)**
+
+Per District Average:
+  - 1,500 subscribers
+  - 2-3 ads = ₹8,000/district/month
+
+Total Revenue: ₹8,000 × 38 = ₹3,04,000/month
+Infrastructure Cost: ₹605/month (10 IPs auto-scaled)
+Net Profit: ₹3,03,395/month (99.8% margin)
+
+Annual Revenue: ₹36,48,000
+Annual Profit: ₹36,40,740
+
+---
+
+## 8. Complete Scaling Timeline with Real Numbers
+
+### 8.1 Month-by-Month Projection (Realistic Warmup Adjusted)
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|}
+\hline
+\textbf{Month} & \textbf{Districts} & \textbf{Subs} & \textbf{Sends} & \textbf{IPs} & \textbf{Cost} & \textbf{Revenue} & \textbf{Profit} & \textbf{Time} \\
+\hline
+1 & 1–2 & 300 & 300 & 1 & ₹135 & ₹8,000 & ₹7,865 & 2 hrs/wk \\
+2 & 3 & 800 & 800 & 1 & ₹135 & ₹16,000 & ₹15,865 & 1.5 hrs/wk \\
+3 & 5 & 1,500 & 1,500 & 1 & ₹135 & ₹27,000 & ₹26,865 & 1 hr/wk \\
+4 & 5 & 2,200 & 2,200 & 2 & ₹189 & ₹35,000 & ₹34,811 & 1 hr/wk \\
+6 & 8 & 6,000 & 6,000 & 3 & ₹243 & ₹80,000 & ₹79,757 & 1.5 hrs/wk \\
+9 & 12 & 12,000 & 12,000 & 6 & ₹405 & ₹1,50,000 & ₹1,49,595 & 1.5 hrs/wk \\
+12 & 18 & 22,000 & 22,000 & 11 & ₹675 & ₹2,50,000 & ₹2,49,325 & 2 hrs/wk \\
+24 & 38 & 55,000 & 55,000 & 28 & ₹1,593 & ₹4,50,000 & ₹4,48,407 & 2 hrs/wk \\
+\hline
+\end{tabular}
+\caption{Realistic growth with gradual warmup (\$0.60/IP pricing)}
+\end{table}
+
+**Key changes from v19.0:**
+
+\begin{itemize}
+\item \textbf{Month 1:} Start with 1–2 districts only (not all 5) for proper IP warmup
+\item \textbf{Month 2–3:} Gradually add remaining MVP districts as IP1 warms up
+\item \textbf{Month 4:} IP2 purchase triggered, but starts low volume and ramps
+\item \textbf{Costs updated:} Reflects \$0.60/IP actual pricing (vs €0.50 assumption)
+\end{itemize}
+
+---
+
+## 9. Implementation Checklist
+
+### Phase 0: Pre-Launch Validation (Week 0) - MANDATORY FIRST STEPS
+
+**IP Reputation Check (DO THIS BEFORE ANYTHING ELSE):**
+
+\begin{itemize}
+\item[$\square$] \textbf{🚨 BLOCKER 1: Check if IP is blacklisted}
+\item[$\square$] Visit https://mxtoolbox.com/blacklists.aspx
+\item[$\square$] Enter IP: 95.217.13.142
+\item[$\square$] Check all 100+ blacklists (takes 30 seconds)
+\item[$\square$] If blacklisted: Request delisting BEFORE proceeding (24–48 hrs)
+\item[$\square$] For Spamhaus: https://check.spamhaus.org/
+\item[$\square$] For Microsoft: https://sender.office.com/
+\item[$\square$] Document results in project log
+\end{itemize}
+
+**Only proceed to Phase 1 if IP is clean or delisting confirmed.**
+
+### Phase 1: Foundation (Week 1) - One-Time Setup
+
+**Domain & Accounts:**
+
+\begin{itemize}
+\item[$\square$] Purchase domain: nammaoorunews.com
+\item[$\square$] Create Hetzner Cloud account
+\item[$\square$] Reserve Primary IP: 95.217.13.142 (already done ✅)
+\item[$\square$] \textbf{🚨 BLOCKER 2: Fix PTR record (Section 6.1) - DO THIS SECOND}
+\item[$\square$] In Hetzner Console: Primary IPs → ··· menu → Edit Reverse DNS
+\item[$\square$] Set PTR: 95.217.13.142 → mail.nammaoorunews.com
+\item[$\square$] Wait 5 minutes for DNS propagation
+\item[$\square$] Verify: dig -x 95.217.13.142 +short returns mail.nammaoorunews.com.
+\item[$\square$] Screenshot Hetzner console showing correct PTR (for documentation)
+\item[$\square$] Create Cloudflare account, add domain
+\end{itemize}
+
+**DNS Configuration:**
+
+\begin{itemize}
+\item[$\square$] Configure initial DNS records (SPF with 1 IP)
+\item[$\square$] Generate initial DKIM keypair
+\item[$\square$] Verify PTR record propagation (wait 5 minutes after Hetzner change)
+\item[$\square$] Configure DMARC (p=none for monitoring)
+\item[$\square$] Set up Cloudflare Email Routing
+\end{itemize}
+
+**Pre-Generate All DKIM Keys (Critical for automation):**
+
+# Run once - generates keys for 10 IPs upfront
+for i in {1..10}; do
+    opendkim-genkey -s mail$i -d nammaoorunews.com
+    # Store mail$i.private in n8n variable: DKIM_PRIVATE_IP$i
+    # Store mail$i.txt (public key) in n8n variable: DKIM_PUBLIC_IP$i
+done
+
+### Phase 2: Core Pipeline (Week 2)
+
+**Cloudflare D1 Setup (Click Tracking Foundation):**
+
+\begin{itemize}
+\item[$\square$] Create D1 database: wrangler d1 create namma-clicks
+\item[$\square$] Run schema creation (click\_links + click\_events tables)
+\item[$\square$] Deploy click-tracker-worker to click.nammaoorunews.com
+\item[$\square$] Test worker: curl https://click.nammaoorunews.com/l/test-token
+\item[$\square$] Verify 24/7 availability (works when VM is offline)
+\end{itemize}
+
+**Infrastructure Setup:**
+
+\begin{itemize}
+\item[$\square$] Build Scrapling microservice (Docker image)
+\item[$\square$] Push to GitHub Container Registry
+\item[$\square$] Create cloud-init script (Docker Compose stack)
+\item[$\square$] Test manual CX33 spawn
+\end{itemize}
+
+### Phase 3: Beta Launch (Week 5-6)
+
+**Pre-Launch Testing:**
+
+\begin{itemize}
+\item[$\square$] \textbf{🚨 FINAL PTR VERIFICATION (MANDATORY):}
+\item[$\square$] Run: dig -x 95.217.13.142 +short
+\item[$\square$] Confirm output: mail.nammaoorunews.com. (not clients.your-server.de)
+\item[$\square$] If wrong, STOP and fix PTR before proceeding
+\item[$\square$] \textbf{Re-verify blacklist status} (check again in case IP changed)
+\item[$\square$] Send 1 test email to personal Gmail account
+\item[$\square$] Verify it lands in inbox (not spam/rejected)
+\item[$\square$] Check email headers for authentication (SPF, DKIM pass)
+\item[$\square$] Set up Google Postmaster Tools for domain (track reputation)
+\item[$\square$] Set up Microsoft SNDS (if planning Outlook delivery)
+\item[$\square$] Test full daily cycle (spawn → pipeline → send → backup → delete)
+\end{itemize}
+
+**Gradual Warmup Launch (Critical):**
+
+\begin{itemize}
+\item[$\square$] \textbf{Day 1:} Send to 50–100 beta subscribers ONLY (1 district)
+\item[$\square$] \textbf{Days 2–3:} Increase to 150–200 subscribers
+\item[$\square$] \textbf{Days 4–7:} Reach 400–600 subscribers (still 1 district)
+\item[$\square$] \textbf{Week 2:} Add 2nd district, reach 800–1,000 total sends/day
+\item[$\square$] \textbf{Week 3:} Add 3rd district if metrics healthy (open rate >30\%, bounce <2\%)
+\item[$\square$] \textbf{Week 4:} Reach full 5 MVP districts at 1,500–2,000 sends/day
+\item[$\square$] Monitor Google Postmaster Tools daily for reputation score
+\item[$\square$] If reputation drops to "Low" or "Bad": Pause growth, investigate
+\end{itemize}
+
+---
+
+## 10. Success Metrics (KPIs)
+
+### Technical Metrics (100% Automated Monitoring)
+
+\begin{itemize}
+\item \textbf{Uptime:} 99.5\%+ (pipeline completes successfully)
+\item \textbf{Delivery Rate:} >98\% (bounces <2\%)
+\item \textbf{Inbox Placement Rate:} >95\% (not spam folder)
+\item \textbf{Processing Time:} <2 hours per day (05:05-07:00 AM)
+\item \textbf{Backup Success:} 100\% (daily R2 uploads verified)
+\item \textbf{Auto-Scaling Accuracy:} 100\% (triggers at correct thresholds)
+\item \textbf{PTR Record Accuracy:} 100\% (all IPs have correct reverse DNS before first use)
+\item \textbf{DNS Propagation Time:} <5 minutes (PTR changes take effect)
+\item \textbf{Click Tracking Uptime:} 100\% (Cloudflare Worker 24/7 availability)
+\item \textbf{Click Capture Rate:} 100\% (all clicks logged, including afternoon/evening)
+\item \textbf{D1 Sync Success:} 100\% (daily PostgreSQL sync completes)
+\item \textbf{Blacklist Status:} 0 listings (check weekly via MXToolbox)
+\item \textbf{Google Postmaster Reputation:} "Medium" or "High" (never "Low" or "Bad")
+\item \textbf{IP Warmup Compliance:} Daily volume increases ≤20\% per step during warmup
+\end{itemize}
+
+### Engagement Metrics
+
+\begin{itemize}
+\item \textbf{Open Rate:} >35\% (hyperlocal content advantage)
+\item \textbf{Click Rate:} >20\% (CTR on article links)
+\item \textbf{Unsubscribe Rate:} <1\% per month
+\item \textbf{Spam Complaint Rate:} <0.1\%
+\end{itemize}
+
+### Revenue Metrics
+
+\begin{itemize}
+\item \textbf{ARPU:} ₹10–₹20/month per subscriber
+\item \textbf{Ad Fill Rate:} 100\% (all ad slots sold)
+\item \textbf{Customer LTV:} ₹1,500–₹2,000 (12-month advertiser retention)
+\item \textbf{CAC:} ₹0 (organic growth)
+\end{itemize}
+
+---
+
+## 11. Competitive Advantages
+
+\begin{enumerate}
+\item \textbf{Hyperlocal Precision:} No other newsletter offers district-level targeting in Tamil Nadu
+\item \textbf{Advertiser ROI:} 20\% average CTR (vs 2\% industry average)
+\item \textbf{Cost Structure:} 99\%+ margins enable aggressive pricing while remaining profitable
+\item \textbf{Zero Lock-In:} Open-source stack means you can migrate to any provider anytime
+\item \textbf{AI-Powered Curation:} Daily fresh content with zero manual editing
+\item \textbf{100\% Automation:} Passive income machine — infrastructure scales itself
+\end{enumerate}
+
+---
+
+## Conclusion
+
+This PRD defines a **production-ready, revenue-generating, fully automated newsletter infrastructure** that:
+
+\begin{enumerate}
+\item \textbf{Starts at ₹126/month} and scales automatically to ₹605/month for 38 districts
+\item \textbf{Generates ₹30,000–₹50,000/month} revenue at MVP scale (5 districts, 2,500 subscribers)
+\item \textbf{Scales to ₹3,00,000+/month} at full Tamil Nadu coverage (38 districts, 57,000+ subscribers)
+\item \textbf{Achieves 99\%+ profit margins} through hyperlocal ad targeting
+\item \textbf{Requires ~5 minutes/day} for monitoring + ~30 minutes/month for advertiser onboarding
+\item \textbf{Auto-scales infrastructure} — buys IPs, updates DNS, rebalances load with zero manual intervention
+\end{enumerate}
+
+**Critical Pre-Launch Actions (In Order):**
+
+**🚨 ACTION 1 (DO NOW):** Fix PTR Record
+
+\begin{enumerate}
+\item Hetzner Console → Primary IPs → ··· menu → Edit Reverse DNS[7]
+\item Set: 95.217.13.142 → mail.nammaoorunews.com
+\item Wait 5 minutes, verify: dig -x 95.217.13.142 +short
+\item Must show mail.nammaoorunews.com. (not clients.your-server.de)
+\end{enumerate}
+
+**This 30-second fix prevents 100% spam delivery. Without it, you cannot launch.**
+
+**ACTION 2:** Follow Implementation Checklist (Section 9) for remaining setup
+
+**The Key Innovation:** While competitors require DevOps teams to scale infrastructure, your system **scales itself automatically**. The PTR fix is the ONLY manual configuration required - everything else is automated.
+
+**Next Step:** Fix PTR (Section 6.1), then follow Implementation Checklist to go from PRD → Live Product in 8 weeks.
+
+---
+
+**Document Version:** v20.0 Final  
+**Last Updated:** February 24, 2026, 7:50 PM IST  
+**Status:** Ready for Implementation ✅ (After Blacklist Check + PTR Fix)
+
+**Critical Changes from v19.0:**
+
+\begin{itemize}
+\item \textbf{ADDED:} Mandatory IP blacklist pre-check (Phase 0) — must verify before any setup
+\item \textbf{ADDED:} Realistic IP warmup schedule (100→2,000 over 3–4 weeks, not instant 2,000)
+\item \textbf{CORRECTED:} IPv4 pricing from €0.50 to \$0.60/month (₹54, not ₹45)
+\item \textbf{UPDATED:} All cost tables reflect accurate \$0.60/IP pricing
+\item \textbf{UPDATED:} Month-by-month projections adjusted for gradual warmup reality
+\item \textbf{ADDED:} Microsoft Outlook blacklist guidance (separate delisting process)
+\item \textbf{ENHANCED:} Implementation checklist with 3-tier blockers (blacklist → PTR → warmup)
+\item \textbf{CLARIFIED:} You need only 1 IP for launch; IP2 added later when volume justifies
+\end{itemize}
+
+**Key Differentiator:** 100% Automated Scaling + Realistic Warmup + Blacklist-Aware Launch
+
+## References
+
+[1] Hetzner Cloud. (2026). Primary IP Configuration. Hetzner Docs. https://docs.hetzner.com/cloud/servers/primary-ips/primary-ip-configuration/
+
+[2] InfraForge. (2026, January 20). How Reverse DNS Impacts Email Deliverability. https://www.infraforge.ai/blog/reverse-dns-email-deliverability-impact
+
+[3] Reddit. (2014, October 23). Note to everyone: Gmail is a lot stricter with email from IPv6 than IPv4 SMTP servers. r/ipv6. https://www.reddit.com/r/ipv6/comments/2k0yib/note_to_everyone_gmail_is_a_lot_stricter_with/
+
+[4] Hetzner. (2025, October 6). PTR record - Hetzner Docs. https://docs.hetzner.com/networking/dns/record-types/ptr-record/
+
+[5] PrimeForge. (2026, January 20). Reverse DNS Best Practices for IP Reputation. https://www.primeforge.ai/blog/reverse-dns-best-practices-for-ip-reputation
+
+[6] PrimeForge. (2026, January 20). Reverse DNS Lookup: Role in Email Deliverability. https://www.primeforge.ai/blog/reverse-dns-lookup-role-in-email-deliverability
+
+[7] Cloudron Forum. (2020, August 13). PTR record hetzner. https://forum.cloudron.io/topic/3025/ptr-record-hetzner
+
+[8] Twilio SendGrid. (2025, June 30). Email Guide to IP Warm Up. https://www.twilio.com/en-us/resource-center/email-guide-ip-warm-up
+
+[9] MailReach. (2026, February 1). Warm Up Your Email Domain the Right Way in 2026. https://www.mailreach.co/blog/how-to-warm-up-email-domain
+
+[10] Warmup Inbox. (2026, January 15). How to warm up an email domain (+ best practices). https://www.warmupinbox.com/blog/email-warmup/domain-warm-up/
+
+[11] Reddit. (2023, November 30). Migrated many clients to new floating IP, found out it is blacklisted. r/hetzner. https://www.reddit.com/r/hetzner/comments/1889acz/migrated_many_clients_to_new_floating_ip_found/
+
+[12] Reddit. (2025, February 4). Bad experience with Hetzner, IPs are blacklisted. r/hetzner. https://www.reddit.com/r/hetzner/comments/1ihaqoe/bad_experience_with_hetzner_ips_are_blacklisted/
+
+[13] MxToolbox. (2026). IP Blacklist Check. https://mxtoolbox.com/blacklists.aspx
+
+[14] Hetzner Docs. (2024, November 8). Microsoft Blacklist. https://docs.hetzner.com/robot/dedicated-server/troubleshooting/microsoft-blacklist/
